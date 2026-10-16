@@ -1,0 +1,12 @@
+# 実行のたびに変わる状態・モックの履歴
+data/state.json
+data/mock_chatwork.json
+data/*.tmp
+data/progress_*.csv
+# 実データ（口座明細など）は絶対に上げない
+data/moneytree_export.csv
+data/real/
+.env
+__pycache__/
+*.pyc
+d.txt

@@ -1,0 +1,745 @@
+<title>入金確認アラート</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* 上部に時計とタブ。入金進捗＝帳簿の集計、通知のようす＝チャット、送信設定＝フォーム */
+:root{
+  --bg:#f3f5f4; --panel:#ffffff; --fg:#1d2723; --muted:#5f6d67; --line:#d9e0dc;
+  --accent:#0f6b57; --accent-soft:#e1efea; --plan:#c9d6d1; --bot:#eef2f1; --me:#fff6e0;
+  --ok:#1f7a3f; --ok-soft:#e3f2e8; --warn:#9a5b00; --warn-soft:#fbf0d9; --bad:#b3261e; --bad-soft:#fbe5e3;
+  --sans:"Zen Kaku Gothic New","Hiragino Sans","Yu Gothic",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#141a18; --panel:#1c2421; --fg:#e4ebe8; --muted:#9aa8a2; --line:#2e3a36;
+  --accent:#5cc4a6; --accent-soft:#1d3a32; --plan:#33433e; --bot:#222c29; --me:#3a321d;
+  --ok:#6fcf8f; --ok-soft:#1d3326; --warn:#e8b25a; --warn-soft:#3a2f1a; --bad:#f08a80; --bad-soft:#3d2220; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#141a18; --panel:#1c2421; --fg:#e4ebe8; --muted:#9aa8a2; --line:#2e3a36;
+  --accent:#5cc4a6; --accent-soft:#1d3a32; --plan:#33433e; --bot:#222c29; --me:#3a321d;
+  --ok:#6fcf8f; --ok-soft:#1d3326; --warn:#e8b25a; --warn-soft:#3a2f1a; --bad:#f08a80; --bad-soft:#3d2220; color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:14px;line-height:1.6}
+.wrap{max-width:1180px;margin:0 auto;padding-block:20px 40px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+h1{font-size:22px;margin:0}
+.sub{color:var(--muted);margin:4px 0 0}
+.bar{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);padding-block:10px;margin-top:10px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:8px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.clock{font-family:var(--mono);font-size:17px;font-weight:500;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:5px 12px;font-variant-numeric:tabular-nums}
+.tabs{display:flex;gap:2px;border:1px solid var(--line);border-radius:9px;background:var(--panel);padding:3px;width:fit-content;max-width:100%;overflow-x:auto}
+.tabs button{border:0;background:transparent;padding:6px 14px;border-radius:7px;white-space:nowrap}
+.tabs button[aria-selected="true"]{background:var(--accent);color:var(--panel);font-weight:700}
+button{font-family:var(--sans);font-size:14px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--fg);padding:7px 14px;cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--panel);font-weight:700}
+button:disabled{opacity:.45;cursor:default}
+button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.view{margin-top:18px}
+h2{font-size:13px;letter-spacing:.06em;color:var(--muted);margin:0 0 8px;font-weight:700}
+.box{background:var(--panel);border:1px solid var(--line);border-radius:10px}
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;min-width:440px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;color:var(--muted);font-weight:500}
+tr:last-child td{border-bottom:0}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+.kana{font-family:var(--mono);font-size:12px;color:var(--muted)}
+.pill{display:inline-block;font-size:12px;font-weight:700;padding:2px 9px;border-radius:99px;white-space:nowrap}
+.p-pending,.p-plan{background:var(--bot);color:var(--muted)}
+.p-asked{background:var(--warn-soft);color:var(--warn)}
+.p-replied{background:var(--accent-soft);color:var(--accent)}
+.p-paid{background:var(--ok-soft);color:var(--ok)}
+.p-overdue{background:var(--bad-soft);color:var(--bad)}
+.meta{font-size:12px;color:var(--muted);margin-top:3px}
+.note{font-size:12px;color:var(--muted);margin-top:8px}
+.grid2{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,6fr);gap:18px}
+@media (max-width:860px){.grid2{grid-template-columns:minmax(0,1fr)}}
+.col{display:flex;flex-direction:column;gap:18px;min-width:0}
+
+/* 入金進捗 */
+.kpis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+@media (max-width:760px){.kpis{grid-template-columns:minmax(0,1fr)}}
+.kpi{padding:14px 16px}
+.kpi .lab{font-size:13px;font-weight:700}
+.kpi .big{font-family:var(--mono);font-size:26px;font-weight:500;font-variant-numeric:tabular-nums;margin-top:2px}
+.kpi .big small{font-size:14px;color:var(--muted);margin-left:6px}
+.prog{height:12px;border-radius:99px;background:var(--plan);overflow:hidden;display:flex;margin:8px 0 6px}
+.prog i{display:block;height:100%}
+.prog .a{background:var(--accent)} .prog .b{background:var(--bad)}
+.kv{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;font-size:12px;color:var(--muted)}
+.kv b{display:block;font-family:var(--mono);font-size:14px;color:var(--fg);font-weight:500;font-variant-numeric:tabular-nums}
+.kv .bad b{color:var(--bad)}
+.chartbox{padding:12px 12px 6px}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:12px;color:var(--muted);margin:0 4px 6px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+svg text{font-family:var(--mono);font-size:11px;fill:var(--muted)}
+tr.cur td{background:var(--accent-soft)}
+#late td:first-child{min-width:9em}
+#late select{width:100%;min-width:10em;font-size:13px;padding:5px 6px}
+#late td:last-child{width:42%}
+
+/* チャット */
+.chat{padding:14px;display:flex;flex-direction:column;gap:12px;max-height:78vh;overflow-y:auto}
+.empty{color:var(--muted);text-align:center;padding:40px 10px}
+.msg{display:flex;gap:10px;align-items:flex-start;min-width:0}
+.av{flex:none;width:34px;height:34px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700;background:var(--accent);color:var(--panel)}
+.av.human{background:var(--warn)}
+.mbody{min-width:0;flex:1}
+.who{font-size:12px;color:var(--muted)}
+.who b{color:var(--fg);margin-right:6px}
+.bubble{background:var(--bot);border-radius:4px 10px 10px 10px;padding:9px 12px;margin-top:3px;overflow-wrap:anywhere}
+.msg.human .bubble{background:var(--me)}
+.to{display:inline-block;font-size:12px;font-weight:700;color:var(--accent);background:var(--accent-soft);border-radius:4px;padding:0 6px;margin:0 4px 4px 0}
+.rp{font-size:12px;color:var(--muted);border-left:3px solid var(--line);padding-left:8px;margin-bottom:4px}
+.info{border:1px solid var(--line);border-radius:6px;background:var(--panel);margin-top:4px}
+.info .t{font-weight:700;padding:6px 10px;border-bottom:1px solid var(--line)}
+.info .c{padding:8px 10px;white-space:pre-wrap}
+.info.k-ok .t{color:var(--ok)} .info.k-warn .t{color:var(--warn)} .info.k-bad .t{color:var(--bad)}
+.daymark{align-self:center;font-family:var(--mono);font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:99px;padding:2px 10px}
+.replybtn{margin-top:6px;font-size:12px;padding:4px 10px}
+@media (prefers-reduced-motion:no-preference){.msg.new{animation:pop .35s ease-out}@keyframes pop{from{transform:translateY(6px);opacity:.3}to{transform:none;opacity:1}}}
+
+/* 送信設定 */
+.form{display:flex;flex-direction:column;gap:18px}
+fieldset{border:1px solid var(--line);border-radius:10px;background:var(--panel);padding:14px 16px;margin:0;min-width:0}
+legend{font-weight:700;padding:0 6px}
+.fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px 16px}
+label{display:flex;flex-direction:column;gap:4px;font-size:13px}
+label small{color:var(--muted);font-size:12px}
+input,textarea,select{font-family:var(--sans);font-size:14px;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:7px;padding:7px 9px;min-width:0}
+input.mono{font-family:var(--mono)}
+textarea{font-family:var(--sans);resize:vertical;min-height:120px;line-height:1.6}
+.inline{display:flex;align-items:center;gap:6px}
+.inline input{width:5.5em}
+.err{color:var(--bad);font-size:12px;min-height:1em}
+.people td{padding:6px}
+.people input{width:100%}
+.tplgrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px}
+@media (max-width:860px){.tplgrid{grid-template-columns:minmax(0,1fr)}}
+.tpltabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.tpltabs button{font-size:13px;padding:5px 12px}
+.tpltabs button[aria-pressed="true"]{background:var(--accent-soft);border-color:var(--accent);color:var(--accent);font-weight:700}
+.chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
+.chips button{font-size:12px;padding:2px 8px;font-family:var(--mono)}
+.actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.saved{font-size:13px;color:var(--ok)}
+.notes{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:16px;align-items:start}
+.note-card{padding:16px 18px;min-width:0}
+.note-card h3{margin:0 0 10px;font-size:16px}
+.note-card dl{margin:0;display:flex;flex-direction:column;gap:4px}
+.note-card dt{font-weight:700;font-size:13px;margin-top:8px}
+.note-card dd{margin:0;color:var(--muted);font-size:13px;line-height:1.75}
+pre.cfg{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px;font-family:var(--mono);font-size:12px;overflow-x:auto;max-height:340px;margin:8px 0 0}
+</style>
+
+<div class="wrap">
+  <h1>入金確認アラート</h1>
+  <p class="sub">入金予定とMoneytreeの入金明細を突き合わせ、入金の進み具合を集計し、担当者に「入金大丈夫？」を事前に送ります。お客様名・金額・人名はすべてサンプルです。</p>
+
+  <div class="bar">
+    <div class="row">
+      <span class="clock" id="clock">—</span>
+      <button class="primary" id="next">次の実行へ ▶</button>
+      <button id="reset">最初から</button>
+    </div>
+    <div class="tabs" role="tablist">
+      <button role="tab" id="t-prog" aria-selected="true" data-view="prog">入金進捗</button>
+      <button role="tab" id="t-chat" aria-selected="false" data-view="chat">通知のようす</button>
+      <button role="tab" id="t-set" aria-selected="false" data-view="set">送信設定</button>
+      <button role="tab" id="t-api" aria-selected="false" data-view="api">APIの注意点</button>
+    </div>
+  </div>
+
+  <!-- 入金進捗 -->
+  <div class="view" id="v-prog">
+    <div class="kpis" id="kpis"></div>
+    <section style="margin-top:18px">
+      <h2 id="chartTitle">月別の入金予定と実績</h2>
+      <div class="box chartbox">
+        <div class="legend"><span><i style="background:var(--accent)"></i>入金済</span><span><i style="background:var(--bad)"></i>期限超過・未入金</span><span><i style="background:var(--plan)"></i>これから</span></div>
+        <div class="scroll"><svg id="chart" viewBox="0 0 760 260" style="width:100%;min-width:560px;height:auto" role="img" aria-label="月別の入金予定と実績"></svg></div>
+      </div>
+    </section>
+    <div class="grid2" style="margin-top:18px">
+      <section>
+        <h2>遅れている入金と原因</h2>
+        <div class="box scroll"><table>
+          <thead><tr><th>お客様 / 区分</th><th class="num">金額</th><th class="num">遅れ</th><th>原因</th></tr></thead>
+          <tbody id="late"></tbody>
+        </table></div>
+        <p class="note">原因はここで選ぶか、担当者がチャットの未入金アラートに番号で返信すると自動で入ります。</p>
+      </section>
+      <section>
+        <h2>原因別の金額（年間）</h2>
+        <div class="box" style="padding:12px 14px" id="byReason"></div>
+      </section>
+    </div>
+    <div class="grid2" style="margin-top:18px">
+      <section>
+        <h2>月別の集計</h2>
+        <div class="box scroll"><table>
+          <thead><tr><th>月</th><th class="num">予定</th><th class="num">入金済</th><th class="num">未入金(超過)</th><th class="num">進捗</th></tr></thead>
+          <tbody id="months"></tbody>
+        </table></div>
+      </section>
+      <section>
+        <h2 id="thisTitle">今月の入金予定</h2>
+        <div class="box scroll"><table>
+          <thead><tr><th>予定日</th><th>お客様 / 区分</th><th class="num">金額</th><th>状態</th></tr></thead>
+          <tbody id="thisMonth"></tbody>
+        </table></div>
+      </section>
+    </div>
+  </div>
+
+  <!-- 通知のようす -->
+  <div class="view" id="v-chat" hidden>
+    <div class="grid2">
+      <div class="col">
+        <section>
+          <h2>通知の対象（予定日が近い入金）</h2>
+          <div class="box scroll"><table>
+            <thead><tr><th>お客様 / 担当</th><th class="num">金額</th><th>予定日</th><th>状態</th></tr></thead>
+            <tbody id="items"></tbody>
+          </table></div>
+          <p class="note">「担当者として返信する」を押すと確認メッセージに返信したことになり、次の実行から再送が止まります。</p>
+        </section>
+        <section>
+          <h2>Moneytreeの入金明細（○○銀行 普通）</h2>
+          <div class="box scroll"><table>
+            <thead><tr><th>日付</th><th>摘要</th><th class="num">金額</th><th>照合</th></tr></thead>
+            <tbody id="txns"></tbody>
+          </table></div>
+          <p class="note">薄い行はまだ口座に入っていない明細です。お客様ごとに登録した振込名義（本人・配偶者など）と金額で照合し、片方だけ一致したものは未入金アラートに「この入金ではないか」と添えます。</p>
+        </section>
+      </div>
+      <section>
+        <h2>チャット：<span id="roomName">経理・入金確認ルーム</span></h2>
+        <div class="box"><div class="chat" id="chat"></div></div>
+      </section>
+    </div>
+  </div>
+
+  <!-- APIの注意点 -->
+  <div class="view" id="v-api" hidden>
+    <div class="notes">
+      <section class="box note-card">
+        <h3>Moneytree（入金実績の取得）</h3>
+        <dl>
+          <dt>費用</dt>
+          <dd>明細をAPIで取るには法人向けの「Moneytree LINK」の契約が必要です。料金は公開されておらず個別見積もりになるため、費用はかかる前提で見てください。個人向けアプリには外部から使えるAPIがありません。</dd>
+          <dt>契約しない方法</dt>
+          <dd>明細をCSVで書き出し、所定のフォルダに置いて読み込ませます。API契約は要りませんが、書き出しを毎日だれかが行う手間が残り、その日に書き出さなければ入金の検知が1日遅れます。書き出せる形式と列名は実物で確かめてから合わせます。</dd>
+          <dt>明細の反映は遅れることがある</dt>
+          <dd>Moneytreeは銀行から明細を定期的に取りに行く仕組みで、入金がその日のうちに出ないことがあります。夕方の入金が翌朝に反映されることもあるため、未入金アラートは予定日の1日後以降にしておくと、入金済みなのに「未入金」と送る誤報を減らせます。</dd>
+          <dt>口座の再連携で止まる</dt>
+          <dd>銀行側のパスワード変更や追加認証の期限切れで、明細の取得が止まることがあります。止まっていても画面上は「未入金」に見えるので、最後に明細を取れた日時を見て、古ければ経理に警告を出す仕組みを入れます。</dd>
+          <dt>振込名義の表記</dt>
+          <dd>摘要は銀行によって半角カナ・記号・長さが違い、長い名前は途中で切れることもあります。お客様ごとに本人・配偶者・親など複数の名義を登録し、親名義などで届いた同額の入金は「この入金ではないか」と人に確認させる形にしています。</dd>
+        </dl>
+      </section>
+      <section class="box note-card">
+        <h3>Chatwork（通知の送信と返信の確認）</h3>
+        <dl>
+          <dt>費用</dt>
+          <dd>API自体の使用料はかかりません。ただし送信者になるBot用アカウントを1人分用意するなら、そのユーザー分の料金がかかります。</dd>
+          <dt>送信者はトークンの持ち主</dt>
+          <dd>APIで送ったメッセージは、トークンを発行した人の発言として出ます。個人のトークンを使うと本人が送ったように見えるため、Bot用アカウントを作り、そのトークンを使ってください。Botは送信先のルームのメンバーにしておく必要があります。</dd>
+          <dt>トークンの管理</dt>
+          <dd>トークンはパスワードと同じ扱いです。プログラムや設定ファイルに直接書かず、環境変数などに置きます。再発行すると古いトークンを使う仕組みはすべて止まるため、再発行するときは使っている連携を洗い出してから行ってください（当社では2026年6月に再発行で既存の通知が止まったことがあります）。</dd>
+          <dt>回数の上限</dt>
+          <dd>APIには1つのトークンにつき5分あたり300回までの上限があり、メッセージ投稿は1ルームにつき短時間に送れる回数にも制限があります。入金確認の件数なら問題ありませんが、一度に大量の確認を送る運用にはしないでください。</dd>
+          <dt>返信の読み取りは直近100件まで</dt>
+          <dd>メッセージの取得は直近100件までです。会話の多いルームに送ると、返信が100件より前に流れて読み取れないことがあります。通知専用のルームを作るのが確実です。</dd>
+          <dt>返信ボタンを使ってもらう</dt>
+          <dd>返信ボタンで返された発言は、どの確認への返事かを確実に判定できます。返信ボタンを使わない発言は、その担当者の確認待ちが1件だけのときに限り返事とみなします。遅れの原因は「2 上棟が11月にずれたため」のように番号から書いてもらうと自動で記録されます。</dd>
+          <dt>組織の設定</dt>
+          <dd>組織によっては、管理者がAPIの利用を制限していることがあります。トークンを発行できない場合は管理者に確認してください。</dd>
+        </dl>
+      </section>
+      <section class="box note-card">
+        <h3>運用</h3>
+        <dl>
+          <dt>実行する場所</dt>
+          <dd>1時間ごとに自動で動かします。社内PCで動かすと、電源が切れている間は止まります。常時動くサーバーやクラウドで動かすのが確実です。</dd>
+          <dt>個人情報</dt>
+          <dd>口座の明細とお客様名を扱うため、明細ファイルや実行記録の置き場所は閲覧できる人を絞ってください。チャットに流す内容も、ルームのメンバー全員が見られる前提で決めます。</dd>
+          <dt>このページの設定と原因</dt>
+          <dd>このページで保存した設定と選んだ原因は、このブラウザの中にだけ残るサンプルです。本番では「config.json を表示」の内容をプログラム側に移します。</dd>
+        </dl>
+      </section>
+    </div>
+  </div>
+
+  <!-- 送信設定 -->
+  <div class="view" id="v-set" hidden>
+    <form class="form" id="form" novalidate>
+      <fieldset>
+        <legend>送り先</legend>
+        <div class="fields">
+          <label>送信するルームのID<input id="f-room" class="mono" inputmode="numeric"><small>ChatworkのルームURLの rid の後ろの数字</small><span class="err" id="e-room"></span></label>
+          <label>送信者として表示する名前<input id="f-bot"><small>Bot用アカウントの表示名</small></label>
+          <label>上長・経理責任者の名前<input id="f-mgrName"></label>
+          <label>上長・経理責任者のアカウントID<input id="f-mgrId" class="mono" inputmode="numeric"><span class="err" id="e-mgrId"></span></label>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>担当者（営業）</legend>
+        <p class="note" style="margin-top:0">入金予定表の担当者名と、ChatworkのアカウントIDを結びつけます。[To] でこの人に通知が届きます。</p>
+        <div class="scroll"><table class="people" style="min-width:380px">
+          <thead><tr><th>担当者名</th><th>アカウントID</th><th></th></tr></thead>
+          <tbody id="people"></tbody>
+        </table></div>
+        <button type="button" id="addPerson" style="margin-top:8px">＋ 担当者を追加</button>
+        <div class="err" id="e-people"></div>
+      </fieldset>
+
+      <fieldset>
+        <legend>送るタイミング</legend>
+        <div class="fields">
+          <label>最初の確認<span class="inline">予定日の<input id="f-askDays" type="number" min="0" max="30">日前</span></label>
+          <label>返信がないときの再送<span class="inline"><input id="f-remindHours" type="number" min="1" max="168">時間ごと</span></label>
+          <label>再送の回数<span class="inline">最大<input id="f-maxRem" type="number" min="0" max="10">回</span></label>
+          <label>上長も宛先に入れる<span class="inline">再送<input id="f-ccFrom" type="number" min="1" max="10">回目から</span></label>
+          <label>未入金アラート<span class="inline">予定日の<input id="f-grace" type="number" min="0" max="30">日後</span></label>
+          <label>送信する時間帯<span class="inline"><input id="f-h1" type="number" min="0" max="23">時〜<input id="f-h2" type="number" min="1" max="24">時</span><small>この時間外は送らず、次の実行に回す</small></label>
+        </div>
+        <div class="err" id="e-timing"></div>
+      </fieldset>
+
+      <fieldset>
+        <legend>入金の照合と集計</legend>
+        <div class="fields">
+          <label>照合する期間<span class="inline">予定日の<input id="f-winB" type="number" min="0" max="60">日前〜<input id="f-winA" type="number" min="0" max="90">日後</span></label>
+          <label>期首の月<select id="f-fy"></select><small>年間の集計をこの月から始める</small></label>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>遅れの原因の選択肢</legend>
+        <label>1行に1つ<textarea id="f-reasons" rows="8"></textarea><small>未入金アラートにこの番号つきの一覧が載り、担当者は番号で返信します。並べ替えると過去に選んだ番号もずれるので、追加は末尾にしてください。</small></label>
+        <div class="err" id="e-reasons"></div>
+      </fieldset>
+
+      <fieldset>
+        <legend>メッセージの文面</legend>
+        <div class="tpltabs" id="tplTabs"></div>
+        <div class="tplgrid">
+          <div>
+            <label>見出し<input id="f-tTitle"></label>
+            <label style="margin-top:10px">本文<textarea id="f-tBody" rows="8"></textarea></label>
+            <div class="chips" id="chips"></div>
+            <p class="note">差し込み項目を押すと、カーソルの位置に入ります。宛先の [To] は自動で先頭に付きます。</p>
+          </div>
+          <div>
+            <h2>プレビュー（山田 太郎様の着工金で表示）</h2>
+            <div class="bubble" id="tplPreview" style="background:var(--bot)"></div>
+          </div>
+        </div>
+      </fieldset>
+
+      <div class="actions">
+        <button type="submit" class="primary">保存して反映する</button>
+        <button type="button" id="defaults">初期値に戻す</button>
+        <button type="button" id="showCfg">config.json を表示</button>
+        <span class="saved" id="saved" role="status"></span>
+      </div>
+      <div id="cfgWrap" hidden>
+        <p class="note">この内容をプログラム側の config.json に貼り付けると、同じ設定で動きます。<button type="button" id="copyCfg" style="margin-left:6px;padding:3px 10px;font-size:12px">コピー</button></p>
+        <pre class="cfg" id="cfg"></pre>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+// ---------------------------------------------------------------- 設定
+const DEFAULTS={
+  room:"400000001",bot:"入金確認Bot",mgrName:"経理責任者",mgrId:"111111",
+  people:[{name:"佐藤",id:"222222"},{name:"鈴木",id:"333333"}],
+  askDays:3,remindHours:24,maxRem:2,ccFrom:2,grace:1,h1:9,h2:19,winB:7,winA:14,fy:4,
+  tpl:{
+    ask:{title:"入金予定の確認",body:"お客様：{お客様}（{物件}）\n区分：{区分}\n金額：{金額}\n入金予定日：{予定日}（{残り}）\n\nMoneytree上ではまだ入金を確認できていません。\n入金は大丈夫そうですか？ このメッセージに返信してください。"},
+    remind:{title:"入金予定の確認（再送{再送回数}回目・未返信）",body:"お客様：{お客様}（{物件}）\n区分：{区分}\n金額：{金額}\n入金予定日：{予定日}（{残り}）\n\nまだ返信をいただけていません。入金は大丈夫そうですか？ このメッセージに返信してください。"},
+    paid:{title:"入金を確認しました{予定日前}",body:"お客様：{お客様}（{物件}）\n区分：{区分}\n金額：{入金額}\n入金日：{入金日}（予定 {予定日}）\n明細：{明細}"},
+    overdue:{title:"未入金アラート",body:"お客様：{お客様}（{物件}）\n区分：{区分}\n金額：{金額}\n入金予定日：{予定日}（予定日を過ぎても入金を確認できません）{参考の入金}\n\n担当者の返信：{返信}\n\n遅れている原因を番号で返信してください（例：2 上棟が11月にずれたため）\n{原因の選択肢}"}
+  },
+  reasons:["住宅ローンの実行待ち・遅れ","工程の遅れ（着工・上棟・引渡しのずれ）","建築確認・各種申請の遅れ","追加工事・金額変更の精算待ち","お客様の振込忘れ・手続き遅れ","分割で入金予定","名義違いで入金済み（照合のみ）","その他"]
+};
+const RKEY="nyukin-alert-reasons-v1";
+let RSN={"加藤 恵様|中間金":1,"吉田 拓也様|着工金":2};
+try{const s=localStorage.getItem(RKEY);if(s)RSN=JSON.parse(s)}catch(e){}
+const saveRsn=()=>{try{localStorage.setItem(RKEY,JSON.stringify(RSN))}catch(e){}};
+const reasonList=()=>CFG.reasons.map((r,k)=>`${k+1} ${r}`).join("\n");
+const TPL_NAMES={ask:"最初の確認",remind:"再送",paid:"入金を確認",overdue:"未入金アラート"};
+const TPL_VARS={ask:["お客様","物件","区分","金額","予定日","残り","担当者"],remind:["お客様","物件","区分","金額","予定日","残り","担当者","再送回数"],paid:["お客様","物件","区分","入金額","入金日","予定日","明細","予定日前","担当者"],overdue:["お客様","物件","区分","金額","予定日","参考の入金","返信","原因の選択肢","担当者"]};
+const KEY="nyukin-alert-settings-v1";
+const clone=o=>JSON.parse(JSON.stringify(o));
+let CFG=clone(DEFAULTS);
+try{const s=localStorage.getItem(KEY);if(s)CFG=Object.assign(clone(DEFAULTS),JSON.parse(s))}catch(e){}
+
+// ---------------------------------------------------------------- データ（サンプル）
+// 通知デモの対象（今月の後半に予定日が来る3件）
+const ITEMS=[
+  {id:"A001",client:"山田 太郎様",prop:"山田邸 新築",kubun:"着工金",amt:5500000,due:"2026-10-20",kana:"ﾔﾏﾀﾞ ﾀﾛｳ/ﾔﾏﾀﾞ ﾊﾅｺ",owner:"佐藤"},
+  {id:"A002",client:"高橋 健一様",prop:"高橋邸 新築",kubun:"中間金",amt:12100000,due:"2026-10-20",kana:"ﾀｶﾊｼ ｹﾝｲﾁ",owner:"鈴木"},
+  {id:"A003",client:"田中 誠様",prop:"田中邸 リフォーム",kubun:"最終金",amt:3300000,due:"2026-10-19",kana:"ﾀﾅｶ ﾏｺﾄ",owner:"佐藤"},
+];
+const TXNS=[
+  {id:"T1",date:"2026-10-15",amt:-88000,desc:"ｶ)ｵﾌｲｽﾃﾞﾝｷ"},
+  {id:"T2",date:"2026-10-16",amt:3300000,desc:"ﾌﾘｺﾐ ﾀﾅｶ ﾏｺﾄ"},
+  {id:"T3",date:"2026-10-20",amt:5500000,desc:"ﾌﾘｺﾐ ﾔﾏﾀﾞ ﾊﾅｺ"},
+  {id:"T4",date:"2026-10-20",amt:1000000,desc:"ﾌﾘｺﾐ ﾀｶﾊｼ ｹﾝｲﾁ"},
+  {id:"T5",date:"2026-10-21",amt:12100000,desc:"ﾌﾘｺﾐ ﾀｶﾊｼ ﾐﾂｺ"},
+];
+// 年間の入金予定（物件ごとに 契約金10%→着工金30%→中間金30%→最終金30%）
+const PROJECTS=[
+  ["伊藤 大輔様","伊藤邸 新築",32000000,"2026-01",20,"佐藤"],
+  ["渡辺 直樹様","渡辺邸 新築",38000000,"2026-02",25,"鈴木"],
+  ["小林 修様","小林邸 新築",29000000,"2026-03",15,"佐藤"],
+  ["加藤 恵様","加藤邸 新築",41000000,"2026-04",20,"鈴木"],
+  ["吉田 拓也様","吉田邸 新築",35000000,"2026-05",25,"佐藤"],
+  ["山本 浩二様","山本邸 新築",27000000,"2026-06",10,"鈴木"],
+  ["中村 優子様","中村邸 新築",44000000,"2026-07",20,"佐藤"],
+  ["松本 翔様","松本邸 新築",31000000,"2026-08",25,"鈴木"],
+  ["井上 聡様","井上邸 新築",36000000,"2026-09",5,"佐藤"],
+  ["木村 亮様","木村邸 新築",33000000,"2026-10",28,"鈴木"],
+  ["林 美穂様","林邸 新築",39000000,"2026-11",20,"佐藤"],
+  ["清水 隆様","清水邸 新築",30000000,"2026-12",25,"鈴木"],
+  ["森 健太様","森邸 新築",37000000,"2027-01",20,"佐藤"],
+];
+const STAGES=[["契約金",0,.1],["着工金",2,.3],["中間金",4,.3],["最終金",6,.3]];
+const LATE=new Set(["加藤 恵様|中間金","吉田 拓也様|着工金"]); // 予定日を過ぎても入っていない（サンプル）
+function addMonth(ym,n){let[y,m]=ym.split("-").map(Number);m+=n;while(m>12){m-=12;y++}return `${y}-${String(m).padStart(2,"0")}`}
+const PLAN=[];
+PROJECTS.forEach(([c,p,price,ym,dd,o])=>STAGES.forEach(([k,off,r])=>{
+  const m=addMonth(ym,off); const day=Math.min(dd,28);
+  PLAN.push({client:c,prop:p,kubun:k,amt:Math.round(price*r/10000)*10000,due:`${m}-${String(day).padStart(2,"0")}`,owner:o,late:LATE.has(c+"|"+k)});
+}));
+
+// ---------------------------------------------------------------- 通知のロジック（プログラム本体と同じ）
+const BOT="999999";
+const STEPS=[
+  {at:"2026-10-16T09:00"},{at:"2026-10-17T09:00"},
+  {at:"2026-10-17T11:30",reply:["A001","お客様に確認済みです。ローン実行が20日なので当日に振り込まれます"]},
+  {at:"2026-10-18T09:00"},{at:"2026-10-19T09:00"},{at:"2026-10-20T18:00"},{at:"2026-10-21T09:00"},{at:"2026-10-22T09:00"},
+];
+const LABEL={pending:"未通知",asked:"確認中・未返信",replied:"返信あり",paid:"入金済",overdue:"未入金アラート",plan:"予定"};
+let S;
+const ts=s=>new Date(s.length===10?s+"T00:00:00+09:00":s+":00+09:00").getTime();
+const day=s=>s.slice(0,10);
+const diffDays=(a,b)=>Math.round((ts(a)-ts(b))/864e5);
+const yen=n=>"¥"+Math.abs(n).toLocaleString("ja-JP");
+const man=n=>(Math.round(n/10000)).toLocaleString("ja-JP")+"万円";
+const norm=s=>(s||"").normalize("NFKC").replace(/[ 　()（）.\-ー・]/g,"").toUpperCase();
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const pid=name=>(CFG.people.find(p=>p.name===name)||{}).id||"未登録";
+const today=()=>S.now?day(S.now):"2026-10-15";
+
+function reset(){
+  S={step:-1,now:null,msgs:[],nextId:1,used:new Set(),st:{}};
+  ITEMS.forEach(i=>S.st[i.id]={status:"pending",sent:[],rem:0,first:null,last:null,reply:null,dep:null,over:false});
+}
+function post(body,acc=BOT){const m={id:S.nextId++,acc,time:S.now,body};S.msgs.push(m);return m.id}
+const toTag=(id,n)=>`[To:${id}]${n}さん`;
+function fill(kind,v,to){
+  let{title,body}=CFG.tpl[kind];
+  for(const k in v){title=title.split("{"+k+"}").join(v[k]);body=body.split("{"+k+"}").join(v[k])}
+  return to.map(([a,n])=>toTag(a,n)).join("\n")+`\n[info][title]${title}[/title]${body}[/info]`;
+}
+function baseVars(i,left=0){
+  const when=left>0?`あと${left}日`:left===0?"本日":`${-left}日経過`;
+  return {"お客様":i.client,"物件":i.prop,"区分":i.kubun,"金額":yen(i.amt),"予定日":i.due,"残り":when,"担当者":i.owner};
+}
+const askMsg=(i,left,n,cc)=>fill(n?"remind":"ask",{...baseVars(i,left),"再送回数":n},[[pid(i.owner),i.owner]].concat(cc?[[CFG.mgrId,CFG.mgrName]]:[]));
+const okMsg=(i,t,early)=>fill("paid",{...baseVars(i),"入金額":yen(t.amt),"入金日":t.date,"明細":t.desc,"予定日前":early?"（予定日前）":""},[[pid(i.owner),i.owner]]);
+function overMsg(i,partial,reply){
+  const x=partial.length?"\n\n※この入金ではないか確認してください（名義か金額のどちらかだけ一致）：\n"+partial.map(p=>`・${p.date} ${yen(p.amt)} ${p.desc}`).join("\n"):"";
+  return fill("overdue",{...baseVars(i),"参考の入金":x,"返信":reply||"なし","原因の選択肢":reasonList()},[[pid(i.owner),i.owner],[CFG.mgrId,CFG.mgrName]]);
+}
+function findDep(i){
+  const lo=ts(i.due)-CFG.winB*864e5, hi=ts(i.due)+CFG.winA*864e5;
+  const keys=i.kana.split("/").map(norm);
+  let hit=null,partial=[],same=[];
+  for(const t of TXNS){
+    const tt=ts(t.date);
+    if(t.amt<=0||S.used.has(t.id)||tt>ts(today())||tt<lo||tt>hi)continue;
+    const nameOk=keys.some(k=>norm(t.desc).includes(k)), amtOk=t.amt===i.amt;
+    if(nameOk&&amtOk){hit=t;break} if(nameOk)partial.push(t); else if(amtOk)same.push(t);
+  }
+  return {hit,partial:partial.concat(same)};
+}
+function runJob(){
+  const h=+S.now.slice(11,13);
+  if(h<CFG.h1||h>=CFG.h2){S.msgs.push({day:true,time:S.now,id:"x"+S.step,skip:true});return}
+  const now=ts(S.now);
+  const waiting={}; ITEMS.forEach(i=>{if(S.st[i.id].status==="asked")waiting[i.owner]=(waiting[i.owner]||0)+1});
+  for(const i of ITEMS){
+    const st=S.st[i.id]; if(st.status==="paid")continue;
+    const left=diffDays(i.due,day(S.now));
+    const {hit,partial}=findDep(i);
+    if(hit){S.used.add(hit.id);st.status="paid";st.dep=hit;post(okMsg(i,hit,st.first===null));continue}
+    if(st.first!==null&&!st.reply){
+      const r=S.msgs.find(m=>m.acc!==BOT&&!m.day&&(st.sent.includes(m.rp)||(waiting[i.owner]===1&&m.owner===i.owner&&ts(m.time)>st.first)));
+      if(r){st.reply=r.text;st.status="replied"}
+    }
+    if(st.first===null&&left<=CFG.askDays){st.sent.push(post(askMsg(i,left)));st.first=st.last=now;st.status="asked"}
+    else if(st.status==="asked"&&st.rem<CFG.maxRem&&now-st.last>=CFG.remindHours*36e5){
+      st.rem++;st.sent.push(post(askMsg(i,left,st.rem,st.rem>=CFG.ccFrom)));st.last=now;
+    }
+    if(left<-CFG.grace&&!st.over){st.sent.push(post(overMsg(i,partial,st.reply)));st.over=true;st.status="overdue"}
+  }
+}
+function reply(id,text){
+  const i=ITEMS.find(x=>x.id===id),st=S.st[id];
+  const mid=post("",pid(i.owner)); const m=S.msgs.find(x=>x.id===mid);
+  m.rp=st.sent[st.sent.length-1]; m.text=text; m.owner=i.owner;
+  // 「2 上棟が…」のように番号で始まる返信は、遅れの原因として記録する
+  const n=parseInt(text.normalize("NFKC"),10);
+  if(n>=1&&n<=CFG.reasons.length){RSN[i.client+"|"+i.kubun]=n-1;saveRsn();m.reason=n-1}
+}
+function next(){
+  if(S.step>=STEPS.length-1)return;
+  S.step++; const s=STEPS[S.step]; S.now=s.at;
+  if(s.reply)reply(...s.reply); else{S.msgs.push({day:true,time:S.now,id:"d"+S.step});runJob()}
+  render(true);
+}
+
+// ---------------------------------------------------------------- 入金進捗の集計
+function allPlan(){
+  const t=today();
+  const rows=PLAN.map(p=>{
+    let status=ts(p.due)>ts(t)?"plan":p.late?"overdue":"paid";
+    return {...p,status,paidAmt:status==="paid"?p.amt:0};
+  });
+  ITEMS.forEach(i=>{
+    const st=S.st[i.id];
+    const status=st.status==="paid"?"paid":(diffDays(i.due,t)<-CFG.grace?"overdue":diffDays(i.due,t)<0?"overdue":"plan");
+    rows.push({client:i.client,prop:i.prop,kubun:i.kubun,amt:i.amt,due:i.due,owner:i.owner,status,paidAmt:st.dep?st.dep.amt:0,demo:i.id,notify:st.status});
+  });
+  return rows;
+}
+function fyMonths(){
+  const t=today(); let y=+t.slice(0,4), m=+t.slice(5,7);
+  if(m<CFG.fy)y--;
+  return Array.from({length:12},(_,k)=>addMonth(`${y}-${String(CFG.fy).padStart(2,"0")}`,k));
+}
+function sum(rows){
+  const plan=rows.reduce((a,r)=>a+r.amt,0), paid=rows.reduce((a,r)=>a+r.paidAmt,0);
+  const late=rows.filter(r=>r.status==="overdue").reduce((a,r)=>a+r.amt-r.paidAmt,0);
+  return {plan,paid,late,rest:plan-paid-late,n:rows.length,pct:plan?paid/plan:0};
+}
+function kpiCard(title,s,sub){
+  const a=s.plan?s.paid/s.plan*100:0, b=s.plan?s.late/s.plan*100:0;
+  return `<div class="box kpi"><div class="lab">${title}</div>
+  <div class="big">${man(s.paid)}<small>/ 予定 ${man(s.plan)}</small></div>
+  <div class="prog" role="img" aria-label="入金済 ${Math.round(a)}%"><i class="a" style="width:${a}%"></i><i class="b" style="width:${b}%"></i></div>
+  <div class="kv"><div>進捗<b>${Math.round(a)}%</b></div><div>これから<b>${man(s.rest)}</b></div><div class="${s.late?"bad":""}">期限超過・未入金<b>${man(s.late)}</b></div></div>
+  <div class="meta">${sub}</div></div>`;
+}
+function renderProgress(){
+  const rows=allPlan(), t=today(), ym=t.slice(0,7), months=fyMonths();
+  const fyRows=rows.filter(r=>months.includes(r.due.slice(0,7)));
+  const mRows=rows.filter(r=>r.due.slice(0,7)===ym);
+  const sm=sum(mRows), sy=sum(fyRows);
+  const fyLabel=`${months[0].replace("-","年")}月〜${months[11].replace("-","年")}月`;
+  document.getElementById("kpis").innerHTML=
+    kpiCard(`今月（${+ym.slice(5)}月）の入金`,sm,`${sm.n}件の予定のうち ${mRows.filter(r=>r.status==="paid").length}件が入金済（${t} 時点）`)+
+    kpiCard(`年間（${fyLabel}）の入金`,sy,`${sy.n}件の予定のうち ${fyRows.filter(r=>r.status==="paid").length}件が入金済`);
+  document.getElementById("chartTitle").textContent=`月別の入金予定と実績（${fyLabel}）`;
+
+  // 月別の表とグラフ
+  const per=months.map(m=>({m,...sum(fyRows.filter(r=>r.due.slice(0,7)===m))}));
+  document.getElementById("months").innerHTML=per.map(p=>`<tr class="${p.m===ym?"cur":""}"><td class="num" style="text-align:left">${+p.m.slice(5)}月${p.m===ym?"（今月）":""}</td><td class="num">${man(p.plan)}</td><td class="num">${man(p.paid)}</td><td class="num" style="${p.late?"color:var(--bad)":""}">${p.late?man(p.late):"—"}</td><td class="num">${p.plan?Math.round(p.pct*100)+"%":"—"}</td></tr>`).join("")+
+    `<tr><td><b>年間</b></td><td class="num"><b>${man(sy.plan)}</b></td><td class="num"><b>${man(sy.paid)}</b></td><td class="num" style="${sy.late?"color:var(--bad)":""}"><b>${sy.late?man(sy.late):"—"}</b></td><td class="num"><b>${Math.round(sy.pct*100)}%</b></td></tr>`;
+
+  const W=760,H=260,L=56,R=10,T=18,B=30, max=Math.max(...per.map(p=>p.plan))*1.12||1;
+  const step=Math.pow(10,Math.floor(Math.log10(max/4))); const tick=Math.ceil(max/4/step)*step;
+  const y=v=>T+(H-T-B)*(1-v/max), bw=(W-L-R)/12;
+  let g="";
+  for(let v=0;v<=max;v+=tick)g+=`<line x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/><text x="${L-6}" y="${y(v)+4}" text-anchor="end">${(v/10000).toLocaleString("ja-JP")}</text>`;
+  g+=`<text x="${L-6}" y="10" text-anchor="end">万円</text>`;
+  per.forEach((p,k)=>{
+    const x=L+k*bw+bw*.18, w=bw*.64;
+    const yp=y(p.plan), ya=y(p.paid), yb=y(p.paid+p.late), base=y(0);
+    g+=`<rect x="${x}" y="${yp}" width="${w}" height="${base-yp}" fill="var(--plan)" rx="2"><title>${+p.m.slice(5)}月 予定 ${man(p.plan)} / 入金済 ${man(p.paid)}</title></rect>`;
+    if(p.late)g+=`<rect x="${x}" y="${yb}" width="${w}" height="${ya-yb}" fill="var(--bad)"/>`;
+    if(p.paid)g+=`<rect x="${x}" y="${ya}" width="${w}" height="${base-ya}" fill="var(--accent)"/>`;
+    if(p.m===ym)g+=`<rect x="${L+k*bw+2}" y="${T-12}" width="${bw-4}" height="${H-T-B+12}" fill="none" stroke="var(--accent)" stroke-dasharray="3 3" rx="4"/>`;
+    g+=`<text x="${x+w/2}" y="${H-B+16}" text-anchor="middle" style="${p.m===ym?"fill:var(--accent);font-weight:500":""}">${+p.m.slice(5)}月</text>`;
+  });
+  document.getElementById("chart").innerHTML=g;
+
+  // 遅れている入金（期限超過）と原因
+  const late=fyRows.filter(r=>r.status==="overdue").map(r=>({...r,key:r.client+"|"+r.kubun})).sort((a,b)=>a.due.localeCompare(b.due));
+  const opts=k=>`<option value="">— 未選択 —</option>`+CFG.reasons.map((x,n)=>`<option value="${n}" ${RSN[k]===n?"selected":""}>${n+1}. ${esc(x)}</option>`).join("");
+  document.getElementById("late").innerHTML=late.length?late.map((r,n)=>`<tr><td>${esc(r.client)}<div class="meta">${esc(r.prop)}・${r.kubun}・担当 ${r.owner}</div></td><td class="num">${yen(r.amt-r.paidAmt)}</td><td class="num" style="color:var(--bad)">${-diffDays(r.due,t)}日</td><td><select id="rsn-${n}" data-key="${esc(r.key)}" aria-label="${esc(r.client)}の遅れの原因" style="max-width:100%;${RSN[r.key]===undefined?"border-color:var(--bad)":""}">${opts(r.key)}</select></td></tr>`).join(""):`<tr><td colspan="4" class="meta">期限を過ぎた未入金はありません</td></tr>`;
+  const agg={}; let unset=0;
+  late.forEach(r=>{const v=r.amt-r.paidAmt; if(RSN[r.key]===undefined)unset+=v; else agg[RSN[r.key]]=(agg[RSN[r.key]]||0)+v});
+  const totalLate=late.reduce((a,r)=>a+r.amt-r.paidAmt,0)||1;
+  const bars=Object.entries(agg).sort((a,b)=>b[1]-a[1]).map(([k,v])=>[`${+k+1}. ${CFG.reasons[k]||"（削除された原因）"}`,v,"var(--bad)"]);
+  if(unset)bars.push(["原因が未選択",unset,"var(--plan)"]);
+  document.getElementById("byReason").innerHTML=bars.length?bars.map(([l,v,c])=>`<div style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;gap:8px;font-size:13px"><span>${esc(l)}</span><span class="num">${man(v)}</span></div><div class="prog" style="margin:4px 0 0;height:8px"><i style="width:${v/totalLate*100}%;background:${c}"></i></div></div>`).join("")+`<div class="meta">期限超過・未入金の合計 ${man(late.reduce((a,r)=>a+r.amt-r.paidAmt,0))}</div>`:`<div class="meta">期限を過ぎた未入金はありません</div>`;
+
+  document.getElementById("thisTitle").textContent=`今月（${+ym.slice(5)}月）の入金予定`;
+  document.getElementById("thisMonth").innerHTML=mRows.sort((a,b)=>a.due.localeCompare(b.due)).map(r=>{
+    let st=r.status, lab=LABEL[st];
+    if(r.demo&&st==="plan"&&r.notify!=="pending")st=r.notify, lab=LABEL[r.notify];
+    return `<tr><td class="num" style="text-align:left">${r.due.slice(5).replace("-","/")}</td><td>${esc(r.client)}<div class="meta">${esc(r.prop)}・${r.kubun}・担当 ${r.owner}</div></td><td class="num">${yen(r.amt)}</td><td><span class="pill p-${st}">${lab}</span></td></tr>`;
+  }).join("");
+}
+
+// ---------------------------------------------------------------- 描画
+function fmtBody(m){
+  if(m.rp)return `<div class="rp">返信 → #${m.rp} 入金予定の確認</div>`+esc(m.text);
+  let b=esc(m.body);
+  b=b.replace(/\[To:(\w+)\]([^\n]+?)さん\n?/g,(_,id,n)=>`<span class="to">To ${n}さん</span>`);
+  b=b.replace(/\[info\]\[title\](.*?)\[\/title\]([\s\S]*?)\[\/info\]/,(_,t,c)=>{
+    const k=t.includes("未入金")?"k-bad":t.includes("確認しました")?"k-ok":t.includes("再送")?"k-warn":"";
+    return `<div class="info ${k}"><div class="t">${t}</div><div class="c">${c}</div></div>`});
+  return b;
+}
+const fmtTime=s=>s.slice(5,10).replace("-","/")+" "+s.slice(11,16);
+function renderChat(scroll){
+  document.getElementById("items").innerHTML=ITEMS.map(i=>{
+    const st=S.st[i.id]; let meta=[];
+    if(st.rem)meta.push(`再送 ${st.rem}回`);
+    if(st.reply)meta.push(`返信「${esc(st.reply)}」`);
+    if(st.dep)meta.push(`${st.dep.date} 入金（${st.dep.id}）`);
+    const rk=RSN[i.client+"|"+i.kubun]; if(st.status==="overdue"&&rk!==undefined)meta.push(`原因：${CFG.reasons[rk]}`);
+    const btn=st.status==="asked"?`<button class="replybtn" type="button" data-r="${i.id}">担当者として返信する</button>`:
+      st.status==="overdue"&&rk===undefined?`<button class="replybtn" type="button" data-r="${i.id}" data-why="1">担当者として原因を返信する</button>`:"";
+    return `<tr><td>${i.client}<div class="kana">${i.kana}・担当 ${i.owner}</div><div class="meta">${i.prop}・${i.kubun}</div>${meta.length?`<div class="meta">${meta.join(" / ")}</div>`:""}${btn}</td><td class="num">${yen(i.amt)}</td><td class="num">${i.due.slice(5).replace("-","/")}</td><td><span class="pill p-${st.status}">${LABEL[st.status]}</span></td></tr>`;
+  }).join("");
+  const t=today();
+  document.getElementById("txns").innerHTML=TXNS.map(x=>{
+    const fut=ts(x.date)>ts(t);
+    const own=Object.entries(S.st).find(([,v])=>v.dep&&v.dep.id===x.id);
+    const tag=x.amt<0?"出金":fut?"未着":own?`<span class="pill p-paid">${own[0]} と一致</span>`:`<span class="pill p-asked">要確認</span>`;
+    return `<tr style="${fut?"opacity:.35":""}"><td class="num" style="text-align:left">${x.date.slice(5).replace("-","/")}</td><td class="kana">${x.desc}</td><td class="num">${x.amt<0?"−":""}${yen(x.amt)}</td><td>${tag}</td></tr>`;
+  }).join("");
+  document.getElementById("roomName").textContent=`ルーム ${CFG.room}`;
+  const chat=document.getElementById("chat");
+  if(!S.msgs.length){chat.innerHTML=`<div class="empty">「次の実行へ」を押すと、1時間ごとのチェックが動き出します。</div>`;return}
+  chat.innerHTML=S.msgs.map(m=>{
+    if(m.day)return `<div class="daymark">${fmtTime(m.time)} 定期実行${m.skip?"（送信時間外のためスキップ）":""}</div>`;
+    const human=m.acc!==BOT;
+    return `<div class="msg ${human?"human":""} ${scroll&&m.time===S.now?"new":""}"><div class="av ${human?"human":""}">${human?esc(m.owner[0]):"Bot"}</div><div class="mbody"><div class="who"><b>${human?esc(m.owner)+"（担当）":esc(CFG.bot)}</b>#${m.id}・${fmtTime(m.time)}</div><div class="bubble">${fmtBody(m)}</div></div></div>`;
+  }).join("");
+  if(scroll)chat.scrollTop=chat.scrollHeight;
+}
+function render(scroll){
+  document.getElementById("clock").textContent=(S.now?S.now.replace("T"," "):"2026-10-15 09:00")+" 時点";
+  const nb=document.getElementById("next"); nb.disabled=S.step>=STEPS.length-1;
+  nb.textContent=S.step>=STEPS.length-1?"デモは以上です":"次の実行へ ▶ "+fmtTime(STEPS[S.step+1].at);
+  renderProgress(); renderChat(scroll);
+}
+
+// ---------------------------------------------------------------- タブ
+function show(v){
+  document.querySelectorAll(".tabs button").forEach(b=>b.setAttribute("aria-selected",b.dataset.view===v?"true":"false"));
+  ["prog","chat","set","api"].forEach(k=>document.getElementById("v-"+k).hidden=k!==v);
+  try{localStorage.setItem(KEY+"-tab",v)}catch(e){}
+}
+document.querySelectorAll(".tabs button").forEach(b=>b.addEventListener("click",()=>show(b.dataset.view)));
+
+// ---------------------------------------------------------------- 送信設定フォーム
+const $=id=>document.getElementById(id);
+const NUMS=["askDays","remindHours","maxRem","ccFrom","grace","h1","h2","winB","winA"];
+let draft=clone(CFG), curTpl="ask";
+$("f-fy").innerHTML=Array.from({length:12},(_,k)=>`<option value="${k+1}">${k+1}月</option>`).join("");
+function loadForm(){
+  $("f-room").value=draft.room;$("f-bot").value=draft.bot;$("f-mgrName").value=draft.mgrName;$("f-mgrId").value=draft.mgrId;
+  NUMS.forEach(k=>$("f-"+k).value=draft[k]); $("f-fy").value=draft.fy;
+  $("f-reasons").value=draft.reasons.join("\n");
+  renderPeople(); renderTplTabs(); loadTpl();
+}
+function renderPeople(){
+  $("people").innerHTML=draft.people.map((p,k)=>`<tr><td><input id="p-name-${k}" data-k="${k}" data-f="name" value="${esc(p.name)}" aria-label="担当者名"></td><td><input id="p-id-${k}" class="mono" inputmode="numeric" data-k="${k}" data-f="id" value="${esc(p.id)}" aria-label="アカウントID"></td><td><button type="button" data-del="${k}" aria-label="${esc(p.name)}を削除">削除</button></td></tr>`).join("");
+}
+$("people").addEventListener("input",e=>{const t=e.target;if(t.dataset.f)draft.people[t.dataset.k][t.dataset.f]=t.value.trim()});
+$("people").addEventListener("click",e=>{const d=e.target.closest("[data-del]");if(d){draft.people.splice(+d.dataset.del,1);renderPeople()}});
+$("addPerson").addEventListener("click",()=>{draft.people.push({name:"",id:""});renderPeople();$("p-name-"+(draft.people.length-1)).focus()});
+function renderTplTabs(){
+  $("tplTabs").innerHTML=Object.keys(TPL_NAMES).map(k=>`<button type="button" data-t="${k}" aria-pressed="${k===curTpl}">${TPL_NAMES[k]}</button>`).join("");
+  $("chips").innerHTML=TPL_VARS[curTpl].map(v=>`<button type="button" data-v="${v}">{${v}}</button>`).join("");
+}
+$("tplTabs").addEventListener("click",e=>{const b=e.target.closest("[data-t]");if(!b)return;curTpl=b.dataset.t;renderTplTabs();loadTpl()});
+let lastField="f-tBody";
+["f-tTitle","f-tBody"].forEach(id=>$(id).addEventListener("focus",()=>lastField=id));
+$("chips").addEventListener("mousedown",e=>e.preventDefault());
+$("chips").addEventListener("click",e=>{
+  const b=e.target.closest("[data-v]");if(!b)return;
+  const el=$(lastField), s=el.selectionStart??el.value.length, t="{"+b.dataset.v+"}";
+  el.value=el.value.slice(0,s)+t+el.value.slice(el.selectionEnd??s); el.focus(); el.selectionStart=el.selectionEnd=s+t.length;
+  el.dispatchEvent(new Event("input"));
+});
+function loadTpl(){$("f-tTitle").value=draft.tpl[curTpl].title;$("f-tBody").value=draft.tpl[curTpl].body;preview()}
+$("f-tTitle").addEventListener("input",e=>{draft.tpl[curTpl].title=e.target.value;preview()});
+$("f-tBody").addEventListener("input",e=>{draft.tpl[curTpl].body=e.target.value;preview()});
+function preview(){
+  const keep=CFG; CFG=draft;
+  const i=ITEMS[0];
+  const body={ask:()=>askMsg(i,3,0,false),remind:()=>askMsg(i,1,2,draft.ccFrom<=2),paid:()=>okMsg(i,TXNS[2],false),overdue:()=>overMsg(i,[TXNS[4]],null)}[curTpl]();
+  CFG=keep;
+  $("tplPreview").innerHTML=fmtBody({body});
+}
+function validate(){
+  const e={};
+  ["room","mgrId"].forEach(k=>{if(!/^\d+$/.test(draft[k]))e[k]="数字で入力してください"});
+  const bad=draft.people.filter(p=>!p.name||!/^\d+$/.test(p.id));
+  if(!draft.people.length)e.people="担当者を1人以上登録してください";
+  else if(bad.length)e.people="担当者名と数字のアカウントIDを両方入れてください";
+  if(draft.h1>=draft.h2)e.timing="送信する時間帯の終わりは始まりより後にしてください";
+  else if(NUMS.some(k=>!Number.isFinite(draft[k])||draft[k]<0))e.timing="0以上の数字を入れてください";
+  if(!draft.reasons.length)e.reasons="原因を1つ以上入れてください";
+  $("e-reasons").textContent=e.reasons||"";
+  $("e-room").textContent=e.room||"";$("e-mgrId").textContent=e.mgrId||"";$("e-people").textContent=e.people||"";$("e-timing").textContent=e.timing||"";
+  return !Object.keys(e).length;
+}
+function readForm(){
+  draft.room=$("f-room").value.trim();draft.bot=$("f-bot").value.trim()||"入金確認Bot";
+  draft.mgrName=$("f-mgrName").value.trim();draft.mgrId=$("f-mgrId").value.trim();
+  NUMS.forEach(k=>draft[k]=Number($("f-"+k).value)); draft.fy=Number($("f-fy").value);
+  draft.reasons=$("f-reasons").value.split("\n").map(s=>s.trim()).filter(Boolean);
+}
+$("form").addEventListener("submit",e=>{
+  e.preventDefault(); readForm();
+  if(!validate()){$("saved").textContent="";return}
+  CFG=clone(draft);
+  try{localStorage.setItem(KEY,JSON.stringify(CFG))}catch(err){}
+  const steps=S.step; reset(); for(let k=0;k<=steps;k++)next();
+  render(false); renderCfg();
+  $("saved").textContent="保存しました。デモを新しい設定でやり直しています。";
+});
+$("defaults").addEventListener("click",()=>{draft=clone(DEFAULTS);loadForm();$("saved").textContent="初期値を読み込みました。保存すると反映されます。"});
+function cfgJson(c){
+  return JSON.stringify({
+    chatwork:{mode:"real",token_env:"CHATWORK_API_TOKEN",room_id:c.room,bot_name:c.bot},
+    manager:{name:c.mgrName,account_id:c.mgrId},
+    assignees:c.people.map(p=>({name:p.name,account_id:p.id})),
+    rules:{ask_days_before:c.askDays,remind_after_hours:c.remindHours,max_reminders:c.maxRem,cc_manager_from_reminder:c.ccFrom,overdue_grace_days:c.grace,send_hours:[c.h1,c.h2],match_window_days_before:c.winB,match_window_days_after:c.winA,fiscal_year_start_month:c.fy},
+    delay_reasons:c.reasons,
+    templates:c.tpl
+  },null,2);
+}
+function renderCfg(){$("cfg").textContent=cfgJson(CFG)}
+$("showCfg").addEventListener("click",()=>{renderCfg();$("cfgWrap").hidden=!$("cfgWrap").hidden});
+$("copyCfg").addEventListener("click",()=>{
+  const txt=$("cfg").textContent;
+  navigator.clipboard.writeText(txt).then(()=>$("saved").textContent="コピーしました",()=>{
+    const r=document.createRange();r.selectNodeContents($("cfg"));const s=getSelection();s.removeAllRanges();s.addRange(r);
+    $("saved").textContent="選択しました。Ctrl+C でコピーしてください";
+  });
+});
+
+// ---------------------------------------------------------------- 起動
+$("next").addEventListener("click",next);
+$("reset").addEventListener("click",()=>{reset();render(false)});
+$("items").addEventListener("click",e=>{const b=e.target.closest("[data-r]");if(!b)return;
+  reply(b.dataset.r,b.dataset.why?"2 上棟が11月にずれたため、中間金の請求も11月にずれます":"確認しました。お客様から明日振り込むと連絡がありました");render(true)});
+$("late").addEventListener("change",e=>{const s=e.target.closest("select[data-key]");if(!s)return;
+  if(s.value==="")delete RSN[s.dataset.key]; else RSN[s.dataset.key]=+s.value; saveRsn(); render(false)});
+reset(); next(); next();
+loadForm();
+try{const t=localStorage.getItem(KEY+"-tab");if(t)show(t)}catch(e){}
+</script>

@@ -1,0 +1,51 @@
+{
+  "_comment": "サンプル設定。mode=mock は実際のMoneytree・Chatworkに一切つながない。",
+  "moneytree": {
+    "mode": "mock",
+    "mock_file": "data/moneytree_mock.json",
+    "csv_file": "data/moneytree_export.csv",
+    "csv_columns": {
+      "date": "日付",
+      "amount": "金額",
+      "description": "内容"
+    }
+  },
+  "chatwork": {
+    "mode": "mock",
+    "mock_file": "data/mock_chatwork.json",
+    "token_env": "CHATWORK_API_TOKEN",
+    "bot_account_id": "999999",
+    "room_id": "400000001"
+  },
+  "expected_file": "data/expected.csv",
+  "rules": {
+    "ask_days_before": 3,
+    "remind_after_hours": 24,
+    "max_reminders": 2,
+    "cc_manager_from_reminder": 2,
+    "overdue_grace_days": 1,
+    "match_window_days_before": 7,
+    "match_window_days_after": 14,
+    "send_hours": [
+      9,
+      19
+    ],
+    "fiscal_year_start_month": 4,
+    "paid_notice_within_days": 3,
+    "match_surname_with_amount": true
+  },
+  "manager": {
+    "name": "経理責任者",
+    "account_id": "111111"
+  },
+  "assignees": [
+    {
+      "name": "佐藤",
+      "account_id": "222222"
+    },
+    {
+      "name": "鈴木",
+      "account_id": "333333"
+    }
+  ]
+}
