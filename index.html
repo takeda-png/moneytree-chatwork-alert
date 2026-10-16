@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ja">
+<html lang="ja" data-locked>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -135,9 +135,32 @@ textarea{font-family:var(--sans);resize:vertical;min-height:120px;line-height:1.
 .note-card dt{font-weight:700;font-size:13px;margin-top:8px}
 .note-card dd{margin:0;color:var(--muted);font-size:13px;line-height:1.75}
 pre.cfg{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px;font-family:var(--mono);font-size:12px;overflow-x:auto;max-height:340px;margin:8px 0 0}
+
+/* ログイン画面 */
+html[data-locked] .wrap{display:none}
+.gate{min-height:80vh;display:grid;place-items:center;padding-block:24px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.gate-card{box-sizing:border-box;width:100%;max-width:360px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:24px 22px;display:flex;flex-direction:column;gap:14px}
+.gate-card h1{font-size:20px}
+.gate-card .sub{margin:0;font-size:13px}
+.gate-card label{display:flex;flex-direction:column;gap:4px;font-size:13px}
+.gate-card .chk{flex-direction:row;align-items:center;gap:6px;color:var(--muted)}
+.gate-card .err{color:var(--bad);font-size:13px;min-height:1.2em}
+.lockbtn{margin-left:auto;font-size:13px;padding:5px 12px}
 </style>
 </head>
 <body>
+
+<div class="gate" id="gate" hidden>
+  <form class="gate-card" id="gate-form" novalidate>
+    <h1>入金確認アラート</h1>
+    <p class="sub">サンプル画面です。IDとパスワードを入れてください。</p>
+    <label>ID<input id="gate-id" autocomplete="username" autocapitalize="off" spellcheck="false"></label>
+    <label>パスワード<input id="gate-pw" type="password" autocomplete="current-password"></label>
+    <label class="chk"><input id="gate-keep" type="checkbox" checked>この端末で30日間記憶する</label>
+    <div class="err" id="gate-err" role="alert"></div>
+    <button type="submit" class="primary" id="gate-btn">ログイン</button>
+  </form>
+</div>
 
 <div class="wrap">
   <h1>入金確認アラート</h1>
@@ -148,6 +171,7 @@ pre.cfg{background:var(--bg);border:1px solid var(--line);border-radius:8px;padd
       <span class="clock" id="clock">—</span>
       <button class="primary" id="next">次の実行へ ▶</button>
       <button id="reset">最初から</button>
+      <button id="lock" class="lockbtn" type="button">ログアウト</button>
     </div>
     <div class="tabs" role="tablist">
       <button role="tab" id="t-prog" aria-selected="true" data-view="prog">入金進捗</button>
@@ -751,6 +775,50 @@ $("late").addEventListener("change",e=>{const s=e.target.closest("select[data-ke
 reset(); next(); next();
 loadForm();
 try{const t=localStorage.getItem(KEY+"-tab");if(t)show(t)}catch(e){}
+</script>
+<script>
+// ---------------------------------------------------------------- ログイン画面（鍵ではなく受付。照合はハッシュで行い平文は置かない）
+(function(){
+  var HASH="7efce52060d01726fc25fe7e922db92948bc2a8fa220cbd834236f670c02466e", KEY="nyukin-alert-gate-v1", DAYS=30;
+  var root=document.documentElement;
+  function saved(){
+    try{var v=JSON.parse(localStorage.getItem(KEY)||"null");if(v&&v.h===HASH&&v.exp>Date.now())return true}catch(e){}
+    try{if(sessionStorage.getItem(KEY)===HASH)return true}catch(e){}
+    return false;
+  }
+  function open(){root.removeAttribute("data-locked");document.getElementById("gate").hidden=true}
+  function lock(){root.setAttribute("data-locked","");var g=document.getElementById("gate");g.hidden=false;setTimeout(function(){document.getElementById("gate-id").focus()},0)}
+  async function hash(t){var b=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(t));return Array.from(new Uint8Array(b)).map(function(x){return x.toString(16).padStart(2,"0")}).join("")}
+  var fails=0;
+  if(saved())open(); else lock();
+  if(!window.crypto||!crypto.subtle){
+    document.getElementById("gate-err").textContent="このページは https:// で開いてください。";
+    document.getElementById("gate-btn").disabled=true;
+  }
+  document.getElementById("gate-form").addEventListener("submit",async function(e){
+    e.preventDefault();
+    var err=document.getElementById("gate-err"), btn=document.getElementById("gate-btn");
+    var id=document.getElementById("gate-id").value.trim().toLowerCase();
+    var pw=document.getElementById("gate-pw").value.trim();
+    if(!id||!pw){err.textContent="IDとパスワードを入れてください。";return}
+    btn.disabled=true;
+    if(fails>=3)await new Promise(function(r){setTimeout(r,3000)});
+    var h=await hash("moneytree-alert|"+id+"|"+pw);
+    btn.disabled=false;
+    if(h!==HASH){fails++;err.textContent="IDかパスワードが違います。";document.getElementById("gate-pw").value="";return}
+    err.textContent="";
+    try{
+      if(document.getElementById("gate-keep").checked)localStorage.setItem(KEY,JSON.stringify({h:HASH,exp:Date.now()+DAYS*864e5}));
+      else sessionStorage.setItem(KEY,HASH);
+    }catch(x){}
+    document.getElementById("gate-pw").value="";
+    open();
+  });
+  document.getElementById("lock").addEventListener("click",function(){
+    try{localStorage.removeItem(KEY)}catch(x){} try{sessionStorage.removeItem(KEY)}catch(x){}
+    lock();
+  });
+})();
 </script>
 
 </body>
