@@ -116,6 +116,9 @@ textarea{font-family:var(--sans);resize:vertical;min-height:120px;line-height:1.
 @media (max-width:860px){.tplgrid{grid-template-columns:minmax(0,1fr)}}
 .tpltabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
 .tpltabs button{font-size:13px;padding:5px 12px}
+.svc-tabs{margin:0}.chathead{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}.chathead h2{margin:0}
+.lwrp{font-size:12px;color:var(--muted);margin-bottom:2px}.lwrp b{color:var(--accent)}
+.info.lw .c .ft{display:block;margin-top:8px;color:var(--muted);font-size:12px}
 .tpltabs button[aria-pressed="true"]{background:var(--accent-soft);border-color:var(--accent);color:var(--accent);font-weight:700}
 .chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
 .chips button{font-size:12px;padding:2px 8px;font-family:var(--mono)}
@@ -236,7 +239,7 @@ html[data-locked] .wrap{display:none}
         </section>
       </div>
       <section>
-        <h2>チャット：<span id="roomName">経理・入金確認ルーム</span></h2>
+        <div class="chathead"><h2>チャット：<span id="roomName">経理・入金確認ルーム</span></h2><div class="tpltabs svc-tabs" id="svcTabsChat" role="group" aria-label="通知を送るチャット"><button type="button" data-svc="chatwork" aria-pressed="false">Chatwork</button><button type="button" data-svc="lineworks" aria-pressed="false">LINE WORKS</button></div></div>
         <div class="box"><div class="chat" id="chat"></div></div>
       </section>
     </div>
@@ -277,6 +280,29 @@ html[data-locked] .wrap{display:none}
           <dd>返信ボタンで返された発言は、どの確認への返事かを確実に判定できます。返信ボタンを使わない発言は、その担当者の確認待ちが1件だけのときに限り返事とみなします。遅れの原因は「2 上棟が11月にずれたため」のように番号から書いてもらうと自動で記録されます。</dd>
           <dt>組織の設定</dt>
           <dd>組織によっては、管理者がAPIの利用を制限していることがあります。トークンを発行できない場合は管理者に確認してください。</dd>
+          <dt>LINE WORKS との違い</dt>
+          <dd>Chatwork は Bot 用アカウントのトークン1つで送信も返信の読み取りもでき、受け口のサーバーは要りません。返信ボタンも使えるので、どの確認への返事かを確実に判定できます。</dd>
+        </dl>
+      </section>
+      <section class="box note-card">
+        <h3>LINE WORKS（通知の送信と返信の受け取り）</h3>
+        <dl>
+          <dt>APIはあるか</dt>
+          <dd>公式の「LINE WORKS API 2.0」があり、Bot からトークルームにメッセージを送れます。設定は管理者が Developer Console（開発者向けの管理画面）で行います。</dd>
+          <dt>費用・プラン</dt>
+          <dd>契約プランによって Bot の数や使える機能が違います。導入前に、契約中のプランで Bot と API が使えるかを管理者に確認してください。返信を受け取る口（下記）を Cloudflare Workers に置く場合は、この件数なら無料枠に収まります。</dd>
+          <dt>返信の受け取りに「受け口」が要る</dt>
+          <dd>Chatwork と違い、LINE WORKS の Bot はトークルームの過去の発言を読みに行けません。担当者の返信は LINE WORKS から、こちらが用意した受け口（https のURL）へ送られてきます。受け取って貯めておく小さなプログラムを常時動かしておく必要があり、止まっている間の返信は記録されません。</dd>
+          <dt>返信ボタンがないので案件番号で答えてもらう</dt>
+          <dd>どの確認への返事かを判定する手段がないため、メッセージに案件番号を載せ、返信の先頭に書いてもらいます（例：A001 お客様に確認済みです／P04-3 2 上棟がずれたため）。番号のない発言は、その担当者の確認待ちが1件だけのときに限り返事とみなします。</dd>
+          <dt>準備（管理者の作業）</dt>
+          <dd>アプリを作って Client ID・Client Secret・サービスアカウント・秘密鍵を発行し、Bot を登録して受け口の URL を設定し、Bot を通知用のトークルームに招待します。トークルームの「チャンネルID」と、担当者・上長のユーザーID（またはログイン用のメールアドレス）も控えておきます。</dd>
+          <dt>鍵の管理</dt>
+          <dd>Client Secret・秘密鍵・Bot Secret はパスワードと同じ扱いです。プログラムや設定ファイルに直接書かず、環境変数などに置きます。受け口は Bot Secret で「LINE WORKS から来た通知か」を確かめてから記録します。</dd>
+          <dt>宛先（メンション）</dt>
+          <dd>Chatwork の [To] の代わりに、本文に &lt;m userId="ユーザーID"&gt; を入れて担当者を呼び出します。この書き方は公式の送信ページには載っておらず外部の解説で確認したものなので、本番前に実際の通知が担当者に届くかを確かめます。</dd>
+          <dt>書式と長さ</dt>
+          <dd>Chatwork のような枠や見出しの装飾がないため、見出しは【】で表します。1通は2,000字までです。原因の選択肢を増やしすぎないでください。</dd>
         </dl>
       </section>
       <section class="box note-card">
@@ -298,19 +324,21 @@ html[data-locked] .wrap{display:none}
     <form class="form" id="form" novalidate>
       <fieldset>
         <legend>送り先</legend>
+        <div class="tpltabs svc-tabs" id="svcTabsForm" role="group" aria-label="通知を送るチャット"><button type="button" data-svc="chatwork" aria-pressed="false">Chatwork</button><button type="button" data-svc="lineworks" aria-pressed="false">LINE WORKS</button></div>
+        <p class="note" id="svcNote"></p>
         <div class="fields">
-          <label>送信するルームのID<input id="f-room" class="mono" inputmode="numeric"><small>ChatworkのルームURLの rid の後ろの数字</small><span class="err" id="e-room"></span></label>
+          <label><span id="l-room">送信するルームのID</span><input id="f-room" class="mono"><small id="h-room">ChatworkのルームURLの rid の後ろの数字</small><span class="err" id="e-room"></span></label>
           <label>送信者として表示する名前<input id="f-bot"><small>Bot用アカウントの表示名</small></label>
           <label>上長・経理責任者の名前<input id="f-mgrName"></label>
-          <label>上長・経理責任者のアカウントID<input id="f-mgrId" class="mono" inputmode="numeric"><span class="err" id="e-mgrId"></span></label>
+          <label><span id="l-mgrId">上長・経理責任者のアカウントID</span><input id="f-mgrId" class="mono"><span class="err" id="e-mgrId"></span></label>
         </div>
       </fieldset>
 
       <fieldset>
         <legend>担当者（営業）</legend>
-        <p class="note" style="margin-top:0">入金予定表の担当者名と、ChatworkのアカウントIDを結びつけます。[To] でこの人に通知が届きます。</p>
+        <p class="note" style="margin-top:0" id="peopleNote">入金予定表の担当者名と、ChatworkのアカウントIDを結びつけます。[To] でこの人に通知が届きます。</p>
         <div class="scroll"><table class="people" style="min-width:380px">
-          <thead><tr><th>担当者名</th><th>アカウントID</th><th></th></tr></thead>
+          <thead><tr><th>担当者名</th><th id="th-pid">アカウントID</th><th></th></tr></thead>
           <tbody id="people"></tbody>
         </table></div>
         <button type="button" id="addPerson" style="margin-top:8px">＋ 担当者を追加</button>
@@ -352,7 +380,7 @@ html[data-locked] .wrap{display:none}
             <label>見出し<input id="f-tTitle"></label>
             <label style="margin-top:10px">本文<textarea id="f-tBody" rows="8"></textarea></label>
             <div class="chips" id="chips"></div>
-            <p class="note">差し込み項目を押すと、カーソルの位置に入ります。宛先の [To] は自動で先頭に付きます。</p>
+            <p class="note" id="tplNote">差し込み項目を押すと、カーソルの位置に入ります。宛先の [To] は自動で先頭に付きます。</p>
           </div>
           <div>
             <h2>プレビュー（山田 太郎様の着工金で表示）</h2>
@@ -378,8 +406,10 @@ html[data-locked] .wrap{display:none}
 <script>
 // ---------------------------------------------------------------- 設定
 const DEFAULTS={
+  svc:"chatwork",
   room:"400000001",bot:"入金確認Bot",mgrName:"経理責任者",mgrId:"111111",
-  people:[{name:"佐藤",id:"222222"},{name:"鈴木",id:"333333"}],
+  lwRoom:"lw-channel-demo",lwMgrId:"manager@example.com",
+  people:[{name:"佐藤",id:"222222",lw:"sato@example.com"},{name:"鈴木",id:"333333",lw:"suzuki@example.com"}],
   askDays:3,remindHours:24,maxRem:2,ccFrom:2,grace:1,h1:9,h2:19,winB:7,winA:14,fy:4,
   tpl:{
     ask:{title:"入金予定の確認",body:"お客様：{お客様}（{物件}）\n区分：{区分}\n金額：{金額}\n入金予定日：{予定日}（{残り}）\n\nMoneytree上ではまだ入金を確認できていません。\n入金は大丈夫そうですか？ このメッセージに返信してください。"},
@@ -400,6 +430,10 @@ const KEY="nyukin-alert-settings-v1";
 const clone=o=>JSON.parse(JSON.stringify(o));
 let CFG=clone(DEFAULTS);
 try{const s=localStorage.getItem(KEY);if(s)CFG=Object.assign(clone(DEFAULTS),JSON.parse(s))}catch(e){}
+CFG.people.forEach(p=>{if(p.lw===undefined)p.lw=""});
+// 通知先ごとに使う項目（Chatwork は数字のID、LINE WORKS はチャンネルIDとユーザーID）
+const SK=c=>c.svc==="lineworks"?{room:"lwRoom",mgr:"lwMgrId",pid:"lw"}:{room:"room",mgr:"mgrId",pid:"id"};
+const isLW=()=>CFG.svc==="lineworks";
 
 // ---------------------------------------------------------------- データ（サンプル）
 // 通知デモの対象（今月の後半に予定日が来る3件）
@@ -456,7 +490,9 @@ const yen=n=>"¥"+Math.abs(n).toLocaleString("ja-JP");
 const man=n=>(Math.round(n/10000)).toLocaleString("ja-JP")+"万円";
 const norm=s=>(s||"").normalize("NFKC").replace(/[ 　()（）.\-ー・]/g,"").toUpperCase();
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-const pid=name=>(CFG.people.find(p=>p.name===name)||{}).id||"未登録";
+const pid=name=>(CFG.people.find(p=>p.name===name)||{})[SK(CFG).pid]||"未登録";
+const mgrId=()=>CFG[SK(CFG).mgr];
+const idName=id=>{const p=CFG.people.find(x=>x[SK(CFG).pid]===id);return p?p.name:id===mgrId()?CFG.mgrName:id};
 const today=()=>S.now?day(S.now):"2026-10-15";
 
 function reset(){
@@ -464,21 +500,24 @@ function reset(){
   ITEMS.forEach(i=>S.st[i.id]={status:"pending",sent:[],rem:0,first:null,last:null,reply:null,dep:null,over:false});
 }
 function post(body,acc=BOT){const m={id:S.nextId++,acc,time:S.now,body};S.msgs.push(m);return m.id}
-const toTag=(id,n)=>`[To:${id}]${n}さん`;
+const toTag=(id,n)=>isLW()?`<m userId="${id}">さん`:`[To:${id}]${n}さん`;
 function fill(kind,v,to){
   let{title,body}=CFG.tpl[kind];
   for(const k in v){title=title.split("{"+k+"}").join(v[k]);body=body.split("{"+k+"}").join(v[k])}
-  return to.map(([a,n])=>toTag(a,n)).join("\n")+`\n[info][title]${title}[/title]${body}[/info]`;
+  const head=to.map(([a,n])=>toTag(a,n)).join("\n");
+  // LINE WORKS には枠の書式がないので【】で見出しにし、返信に使う案件番号を添える
+  if(isLW())return `${head}\n【${title}】\n${body}`+(kind==="paid"?"":`\n\n案件番号：${v["案件番号"]}（返信の先頭にこの番号を書いてください）`);
+  return head+`\n[info][title]${title}[/title]${body}[/info]`;
 }
 function baseVars(i,left=0){
   const when=left>0?`あと${left}日`:left===0?"本日":`${-left}日経過`;
-  return {"お客様":i.client,"物件":i.prop,"区分":i.kubun,"金額":yen(i.amt),"予定日":i.due,"残り":when,"担当者":i.owner};
+  return {"お客様":i.client,"物件":i.prop,"区分":i.kubun,"金額":yen(i.amt),"予定日":i.due,"残り":when,"担当者":i.owner,"案件番号":i.id};
 }
-const askMsg=(i,left,n,cc)=>fill(n?"remind":"ask",{...baseVars(i,left),"再送回数":n},[[pid(i.owner),i.owner]].concat(cc?[[CFG.mgrId,CFG.mgrName]]:[]));
+const askMsg=(i,left,n,cc)=>fill(n?"remind":"ask",{...baseVars(i,left),"再送回数":n},[[pid(i.owner),i.owner]].concat(cc?[[mgrId(),CFG.mgrName]]:[]));
 const okMsg=(i,t,early)=>fill("paid",{...baseVars(i),"入金額":yen(t.amt),"入金日":t.date,"明細":t.desc,"予定日前":early?"（予定日前）":""},[[pid(i.owner),i.owner]]);
 function overMsg(i,partial,reply){
   const x=partial.length?"\n\n※この入金ではないか確認してください（名義か金額のどちらかだけ一致）：\n"+partial.map(p=>`・${p.date} ${yen(p.amt)} ${p.desc}`).join("\n"):"";
-  return fill("overdue",{...baseVars(i),"参考の入金":x,"返信":reply||"なし","原因の選択肢":reasonList()},[[pid(i.owner),i.owner],[CFG.mgrId,CFG.mgrName]]);
+  return fill("overdue",{...baseVars(i),"参考の入金":x,"返信":reply||"なし","原因の選択肢":reasonList()},[[pid(i.owner),i.owner],[mgrId(),CFG.mgrName]]);
 }
 function findDep(i){
   const lo=ts(i.due)-CFG.winB*864e5, hi=ts(i.due)+CFG.winA*864e5;
@@ -516,7 +555,7 @@ function runJob(){
 function reply(id,text){
   const i=ITEMS.find(x=>x.id===id),st=S.st[id];
   const mid=post("",pid(i.owner)); const m=S.msgs.find(x=>x.id===mid);
-  m.rp=st.sent[st.sent.length-1]; m.text=text; m.owner=i.owner;
+  m.rp=st.sent[st.sent.length-1]; m.text=text; m.owner=i.owner; m.item=id;
   // 「2 上棟が…」のように番号で始まる返信は、遅れの原因として記録する
   const n=parseInt(text.normalize("NFKC"),10);
   if(n>=1&&n<=CFG.reasons.length){RSN[i.client+"|"+i.kubun]=n-1;saveRsn();m.reason=n-1}
@@ -614,8 +653,16 @@ function renderProgress(){
 
 // ---------------------------------------------------------------- 描画
 function fmtBody(m){
+  if(m.rp&&isLW())return `<div class="lwrp">案件番号から書いた返信</div><b>${esc(m.item)}</b> `+esc(m.text);
   if(m.rp)return `<div class="rp">返信 → #${m.rp} 入金予定の確認</div>`+esc(m.text);
   let b=esc(m.body);
+  if(isLW()){
+    b=b.replace(/&lt;m userId=&quot;(.*?)&quot;&gt;さん\n?/g,(_,id)=>`<span class="to">@${esc(idName(id))}さん</span>`);
+    return b.replace(/【(.+?)】\n([\s\S]*)$/,(_,t,c)=>{
+      const k=t.includes("未入金")?"k-bad":t.includes("確認しました")?"k-ok":t.includes("再送")?"k-warn":"";
+      c=c.replace(/\n\n(案件番号：[^\n]*)$/,`<span class="ft">$1</span>`);
+      return `<div class="info lw ${k}"><div class="t">【${t}】</div><div class="c">${c}</div></div>`});
+  }
   b=b.replace(/\[To:(\w+)\]([^\n]+?)さん\n?/g,(_,id,n)=>`<span class="to">To ${n}さん</span>`);
   b=b.replace(/\[info\]\[title\](.*?)\[\/title\]([\s\S]*?)\[\/info\]/,(_,t,c)=>{
     const k=t.includes("未入金")?"k-bad":t.includes("確認しました")?"k-ok":t.includes("再送")?"k-warn":"";
@@ -641,7 +688,8 @@ function renderChat(scroll){
     const tag=x.amt<0?"出金":fut?"未着":own?`<span class="pill p-paid">${own[0]} と一致</span>`:`<span class="pill p-asked">要確認</span>`;
     return `<tr style="${fut?"opacity:.35":""}"><td class="num" style="text-align:left">${x.date.slice(5).replace("-","/")}</td><td class="kana">${x.desc}</td><td class="num">${x.amt<0?"−":""}${yen(x.amt)}</td><td>${tag}</td></tr>`;
   }).join("");
-  document.getElementById("roomName").textContent=`ルーム ${CFG.room}`;
+  document.getElementById("roomName").textContent=isLW()?`LINE WORKS トークルーム（${CFG.lwRoom}）`:`Chatwork ルーム ${CFG.room}`;
+  syncSvcTabs();
   const chat=document.getElementById("chat");
   if(!S.msgs.length){chat.innerHTML=`<div class="empty">「次の実行へ」を押すと、1時間ごとのチェックが動き出します。</div>`;return}
   chat.innerHTML=S.msgs.map(m=>{
@@ -671,18 +719,38 @@ const $=id=>document.getElementById(id);
 const NUMS=["askDays","remindHours","maxRem","ccFrom","grace","h1","h2","winB","winA"];
 let draft=clone(CFG), curTpl="ask";
 $("f-fy").innerHTML=Array.from({length:12},(_,k)=>`<option value="${k+1}">${k+1}月</option>`).join("");
+const SVC_TEXT={
+  chatwork:{note:"Chatwork の Bot 用アカウントから送り、返信ボタンでの返事を読み取ります。",lRoom:"送信するルームのID",hRoom:"ChatworkのルームURLの rid の後ろの数字",lMgr:"上長・経理責任者のアカウントID",th:"アカウントID",
+    people:"入金予定表の担当者名と、ChatworkのアカウントIDを結びつけます。[To] でこの人に通知が届きます。",tpl:"差し込み項目を押すと、カーソルの位置に入ります。宛先の [To] は自動で先頭に付きます。"},
+  lineworks:{note:"LINE WORKS の Bot から送ります。返信ボタンがないため、担当者には返信の先頭に案件番号を書いてもらいます。返信を受け取る口（サーバー）が別に要ります。詳しくは「APIの注意点」。",lRoom:"送信するトークルームのチャンネルID",hRoom:"トークルームのメニューにある「チャンネルID」",lMgr:"上長・経理責任者のユーザーID",th:"ユーザーID（メールアドレス可）",
+    people:"入金予定表の担当者名と、LINE WORKS のユーザーIDを結びつけます。メンションでこの人に通知が届きます。",tpl:"差し込み項目を押すと、カーソルの位置に入ります。宛先のメンションは自動で先頭に、案件番号は末尾に付きます。"}
+};
+function syncSvcTabs(){document.querySelectorAll("[data-svc]").forEach(b=>b.setAttribute("aria-pressed",b.dataset.svc===CFG.svc?"true":"false"))}
+function setSvc(v){
+  if(v===CFG.svc)return;
+  readForm(); draft.svc=v; CFG.svc=v;
+  try{localStorage.setItem(KEY,JSON.stringify(CFG))}catch(err){}
+  const steps=S.step; reset(); for(let k=0;k<=steps;k++)next();
+  loadForm(); render(false); renderCfg();
+  $("saved").textContent=`通知先を ${v==="lineworks"?"LINE WORKS":"Chatwork"} にしました。デモを最初からやり直しています。`;
+}
+document.querySelectorAll("[data-svc]").forEach(b=>b.addEventListener("click",()=>setSvc(b.dataset.svc)));
 function loadForm(){
-  $("f-room").value=draft.room;$("f-bot").value=draft.bot;$("f-mgrName").value=draft.mgrName;$("f-mgrId").value=draft.mgrId;
+  const k=SK(draft),t=SVC_TEXT[draft.svc];
+  $("svcNote").textContent=t.note;$("l-room").textContent=t.lRoom;$("h-room").textContent=t.hRoom;$("l-mgrId").textContent=t.lMgr;
+  $("th-pid").textContent=t.th;$("peopleNote").textContent=t.people;$("tplNote").textContent=t.tpl;
+  ["f-room","f-mgrId"].forEach(id=>$(id).inputMode=draft.svc==="lineworks"?"email":"numeric");
+  $("f-room").value=draft[k.room];$("f-bot").value=draft.bot;$("f-mgrName").value=draft.mgrName;$("f-mgrId").value=draft[k.mgr];
   NUMS.forEach(k=>$("f-"+k).value=draft[k]); $("f-fy").value=draft.fy;
   $("f-reasons").value=draft.reasons.join("\n");
   renderPeople(); renderTplTabs(); loadTpl();
 }
 function renderPeople(){
-  $("people").innerHTML=draft.people.map((p,k)=>`<tr><td><input id="p-name-${k}" data-k="${k}" data-f="name" value="${esc(p.name)}" aria-label="担当者名"></td><td><input id="p-id-${k}" class="mono" inputmode="numeric" data-k="${k}" data-f="id" value="${esc(p.id)}" aria-label="アカウントID"></td><td><button type="button" data-del="${k}" aria-label="${esc(p.name)}を削除">削除</button></td></tr>`).join("");
+  $("people").innerHTML=draft.people.map((p,k)=>`<tr><td><input id="p-name-${k}" data-k="${k}" data-f="name" value="${esc(p.name)}" aria-label="担当者名"></td><td><input id="p-id-${k}" class="mono" inputmode="${draft.svc==="lineworks"?"email":"numeric"}" data-k="${k}" data-f="${SK(draft).pid}" value="${esc(p[SK(draft).pid]||"")}" aria-label="${SVC_TEXT[draft.svc].th}"></td><td><button type="button" data-del="${k}" aria-label="${esc(p.name)}を削除">削除</button></td></tr>`).join("");
 }
 $("people").addEventListener("input",e=>{const t=e.target;if(t.dataset.f)draft.people[t.dataset.k][t.dataset.f]=t.value.trim()});
 $("people").addEventListener("click",e=>{const d=e.target.closest("[data-del]");if(d){draft.people.splice(+d.dataset.del,1);renderPeople()}});
-$("addPerson").addEventListener("click",()=>{draft.people.push({name:"",id:""});renderPeople();$("p-name-"+(draft.people.length-1)).focus()});
+$("addPerson").addEventListener("click",()=>{draft.people.push({name:"",id:"",lw:""});renderPeople();$("p-name-"+(draft.people.length-1)).focus()});
 function renderTplTabs(){
   $("tplTabs").innerHTML=Object.keys(TPL_NAMES).map(k=>`<button type="button" data-t="${k}" aria-pressed="${k===curTpl}">${TPL_NAMES[k]}</button>`).join("");
   $("chips").innerHTML=TPL_VARS[curTpl].map(v=>`<button type="button" data-v="${v}">{${v}}</button>`).join("");
@@ -709,10 +777,12 @@ function preview(){
 }
 function validate(){
   const e={};
-  ["room","mgrId"].forEach(k=>{if(!/^\d+$/.test(draft[k]))e[k]="数字で入力してください"});
-  const bad=draft.people.filter(p=>!p.name||!/^\d+$/.test(p.id));
+  const k=SK(draft), lw=draft.svc==="lineworks", ok=v=>lw?/^[\w.@+\-]+$/.test(v||""):/^\d+$/.test(v||"");
+  const msg=lw?"英数字・メールアドレスの形で入力してください":"数字で入力してください";
+  if(!ok(draft[k.room]))e.room=msg; if(!ok(draft[k.mgr]))e.mgrId=msg;
+  const bad=draft.people.filter(p=>!p.name||!ok(p[k.pid]));
   if(!draft.people.length)e.people="担当者を1人以上登録してください";
-  else if(bad.length)e.people="担当者名と数字のアカウントIDを両方入れてください";
+  else if(bad.length)e.people=lw?"担当者名と LINE WORKS のユーザーIDを両方入れてください":"担当者名と数字のアカウントIDを両方入れてください";
   if(draft.h1>=draft.h2)e.timing="送信する時間帯の終わりは始まりより後にしてください";
   else if(NUMS.some(k=>!Number.isFinite(draft[k])||draft[k]<0))e.timing="0以上の数字を入れてください";
   if(!draft.reasons.length)e.reasons="原因を1つ以上入れてください";
@@ -721,8 +791,9 @@ function validate(){
   return !Object.keys(e).length;
 }
 function readForm(){
-  draft.room=$("f-room").value.trim();draft.bot=$("f-bot").value.trim()||"入金確認Bot";
-  draft.mgrName=$("f-mgrName").value.trim();draft.mgrId=$("f-mgrId").value.trim();
+  const k=SK(draft);
+  draft[k.room]=$("f-room").value.trim();draft.bot=$("f-bot").value.trim()||"入金確認Bot";
+  draft.mgrName=$("f-mgrName").value.trim();draft[k.mgr]=$("f-mgrId").value.trim();
   NUMS.forEach(k=>draft[k]=Number($("f-"+k).value)); draft.fy=Number($("f-fy").value);
   draft.reasons=$("f-reasons").value.split("\n").map(s=>s.trim()).filter(Boolean);
 }
@@ -738,9 +809,11 @@ $("form").addEventListener("submit",e=>{
 $("defaults").addEventListener("click",()=>{draft=clone(DEFAULTS);loadForm();$("saved").textContent="初期値を読み込みました。保存すると反映されます。"});
 function cfgJson(c){
   return JSON.stringify({
+    notify_service:c.svc,
     chatwork:{mode:"real",token_env:"CHATWORK_API_TOKEN",room_id:c.room,bot_name:c.bot},
-    manager:{name:c.mgrName,account_id:c.mgrId},
-    assignees:c.people.map(p=>({name:p.name,account_id:p.id})),
+    lineworks:{mode:"real",mock_file:"data/mock_lineworks.json",bot_id:"",channel_id:c.lwRoom,client_id:"",service_account:"",client_secret_env:"LINEWORKS_CLIENT_SECRET",private_key_env:"LINEWORKS_PRIVATE_KEY",inbox_url:"",inbox_token_env:"LINEWORKS_INBOX_TOKEN"},
+    manager:{name:c.mgrName,account_id:c.mgrId,lineworks_user_id:c.lwMgrId},
+    assignees:c.people.map(p=>({name:p.name,account_id:p.id,lineworks_user_id:p.lw||""})),
     rules:{ask_days_before:c.askDays,remind_after_hours:c.remindHours,max_reminders:c.maxRem,cc_manager_from_reminder:c.ccFrom,overdue_grace_days:c.grace,send_hours:[c.h1,c.h2],match_window_days_before:c.winB,match_window_days_after:c.winA,fiscal_year_start_month:c.fy},
     delay_reasons:c.reasons,
     templates:c.tpl

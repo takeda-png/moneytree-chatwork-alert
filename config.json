@@ -1,5 +1,7 @@
 {
-  "_comment": "サンプル設定。mode=mock は実際のMoneytree・Chatworkに一切つながない。",
+  "_comment": "サンプル設定。mode=mock は実際のMoneytree・Chatwork・LINE WORKSに一切つながない。",
+  "notify_service": "chatwork",
+  "_notify_service": "通知先。chatwork か lineworks。python main.py --service lineworks demo で一時的に切り替えて試せる",
   "moneytree": {
     "mode": "mock",
     "mock_file": "data/moneytree_mock.json",
@@ -16,6 +18,19 @@
     "token_env": "CHATWORK_API_TOKEN",
     "bot_account_id": "999999",
     "room_id": "400000001"
+  },
+  "lineworks": {
+    "mode": "mock",
+    "mock_file": "data/mock_lineworks.json",
+    "_comment": "本番は Developer Console のアプリ・Bot・サービスアカウントの値。秘密の値は環境変数に入れ、ここには書かない",
+    "bot_id": "",
+    "channel_id": "lw-channel-demo",
+    "client_id": "",
+    "service_account": "",
+    "client_secret_env": "LINEWORKS_CLIENT_SECRET",
+    "private_key_env": "LINEWORKS_PRIVATE_KEY",
+    "inbox_url": "",
+    "inbox_token_env": "LINEWORKS_INBOX_TOKEN"
   },
   "expected_file": "data/expected.csv",
   "rules": {
@@ -36,16 +51,19 @@
   },
   "manager": {
     "name": "経理責任者",
-    "account_id": "111111"
+    "account_id": "111111",
+    "lineworks_user_id": "manager@example.com"
   },
   "assignees": [
     {
       "name": "佐藤",
-      "account_id": "222222"
+      "account_id": "222222",
+      "lineworks_user_id": "sato@example.com"
     },
     {
       "name": "鈴木",
-      "account_id": "333333"
+      "account_id": "333333",
+      "lineworks_user_id": "suzuki@example.com"
     }
   ]
 }

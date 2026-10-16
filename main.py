@@ -1,10 +1,13 @@
-"""入金予定 × Moneytree 実績 → Chatwork 確認通知（サンプル）
+"""入金予定 × Moneytree 実績 → Chatwork / LINE WORKS 確認通知（サンプル）
 
   python main.py demo                     # 10/17〜10/22 を早送りで再現
   python main.py run [--now 2026-10-18T09:00]
   python main.py reply A001 "20日に振込予定です"   # モックChatworkで担当者の返信を再現
   python main.py status
   python main.py reset
+  python main.py --service lineworks demo   # 通知先を LINE WORKS にして再現
+
+通知先は config.json の notify_service（chatwork / lineworks）で選ぶ。
 
 標準ライブラリのみ。config.json の mode=mock のあいだは外部に一切通信しない。
 """
@@ -146,20 +149,127 @@ class RealChatwork:
                  "send_time": m["send_time"], "body": m["body"]} for m in rows]
 
 
+# ---------------------------------------------------------------- LINE WORKS
+class MockLineWorks(MockChatwork):
+    """LINE WORKS の代わり。投稿は data/mock_lineworks.json に溜まる。"""
+
+    def __init__(self, cfg):
+        self.path = BASE / cfg["mock_file"]
+        self.bot = "bot"
+
+
+class RealLineWorks:
+    """LINE WORKS API 2.0 の Bot で送る。
+    返信は LINE WORKS から受け口（Callback URL）へ届くので、受け口に貯めた分を読みに行く。
+    受け口の例は lineworks_inbox_worker.js（Cloudflare Workers）。
+    認証に RS256 の署名が要るため、本番だけ `pip install cryptography` が必要。"""
+    AUTH = "https://auth.worksmobile.com/oauth2/v2.0/token"
+    API = "https://www.worksapis.com/v1.0"
+
+    def __init__(self, cfg):
+        self.cfg = cfg
+        self.bot = "bot"
+        self._token = None
+        self._seq = 0
+        need = [cfg["client_secret_env"], cfg["private_key_env"], cfg["inbox_token_env"]]
+        miss = [k for k in need if not os.environ.get(k)]
+        if miss or not cfg.get("bot_id") or not cfg.get("inbox_url"):
+            sys.exit("LINE WORKS の設定が足りません：環境変数 " + "・".join(miss or ["（なし）"])
+                     + " / config の lineworks.bot_id・inbox_url を確認してください")
+
+    def _jwt(self):
+        import base64
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import padding
+        b64 = lambda b: base64.urlsafe_b64encode(b).rstrip(b"=")
+        now = int(dt.datetime.now().timestamp())
+        head = b64(json.dumps({"alg": "RS256", "typ": "JWT"}).encode())
+        body = b64(json.dumps({"iss": self.cfg["client_id"], "sub": self.cfg["service_account"],
+                               "iat": now, "exp": now + 3600}).encode())
+        key = serialization.load_pem_private_key(os.environ[self.cfg["private_key_env"]].encode(), None)
+        sig = b64(key.sign(head + b"." + body, padding.PKCS1v15(), hashes.SHA256()))
+        return (head + b"." + body + b"." + sig).decode()
+
+    def _access_token(self):
+        if not self._token:
+            data = urllib.parse.urlencode({
+                "assertion": self._jwt(), "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+                "client_id": self.cfg["client_id"], "client_secret": os.environ[self.cfg["client_secret_env"]],
+                "scope": "bot"}).encode()
+            with urllib.request.urlopen(urllib.request.Request(self.AUTH, data=data), timeout=20) as r:
+                self._token = json.loads(r.read())["access_token"]
+        return self._token
+
+    def post(self, room_id, body, now, account_id=None):
+        url = f"{self.API}/bots/{self.cfg['bot_id']}/channels/{room_id}/messages"
+        data = json.dumps({"content": {"type": "text", "text": body[:2000]}}).encode()
+        req = urllib.request.Request(url, data=data, method="POST", headers={
+            "Authorization": "Bearer " + self._access_token(), "Content-Type": "application/json"})
+        urllib.request.urlopen(req, timeout=20).close()
+        # LINE WORKS は送信したメッセージのIDを返さないので、こちらで番号を振る
+        self._seq += 1
+        return f"lw{int(now.timestamp())}-{self._seq}"
+
+    def messages(self, room_id):
+        url = self.cfg["inbox_url"].rstrip("/") + "/messages?channel=" + urllib.parse.quote(str(room_id))
+        req = urllib.request.Request(url, headers={
+            "Authorization": "Bearer " + os.environ[self.cfg["inbox_token_env"]]})
+        with urllib.request.urlopen(req, timeout=20) as r:
+            return json.loads(r.read())
+
+
+SERVICES = {"chatwork": "Chatwork", "lineworks": "LINE WORKS"}
+
+
+def service(cfg):
+    s = cfg.get("notify_service", "chatwork")
+    if s not in SERVICES:
+        sys.exit(f"notify_service は {' / '.join(SERVICES)} のどちらかにしてください（いま：{s}）")
+    return s
+
+
+def make_chat(cfg, mock=None):
+    s = service(cfg)
+    c = cfg[s]
+    use_mock = c["mode"] == "mock" if mock is None else mock
+    if s == "lineworks":
+        return MockLineWorks(c) if use_mock else RealLineWorks(c)
+    return MockChatwork(c) if use_mock else RealChatwork(c)
+
+
+def default_room(cfg):
+    c = cfg[service(cfg)]
+    return str(c.get("channel_id") or c.get("room_id") or "")
+
+
 # ---------------------------------------------------------------- 本体
 def load_expected(cfg):
-    """担当者IDやルームIDが空の行は、設定画面の担当者一覧・既定ルームで補う。"""
-    people = {a["name"]: a["account_id"] for a in cfg.get("assignees", [])}
-    room = cfg["chatwork"].get("room_id", "")
+    """担当者IDやルームIDが空の行は、設定画面の担当者一覧・既定ルームで補う。
+    LINE WORKS のときは担当者一覧の lineworks_user_id と既定のトークルームを使う。"""
+    lw = service(cfg) == "lineworks"
+    key = "lineworks_user_id" if lw else "account_id"
+    people = {a["name"]: a.get(key, "") for a in cfg.get("assignees", [])}
+    room = default_room(cfg)
     with open(BASE / cfg["expected_file"], encoding="utf-8-sig", newline="") as f:
         rows = list(csv.DictReader(f))
     for r in rows:
         r.setdefault("お客様", r.get("取引先", ""))
         r.setdefault("物件", "")
         r.setdefault("区分", "")
-        r["担当者ID"] = r.get("担当者ID") or people.get(r["担当者名"], "")
-        r["ルームID"] = r.get("ルームID") or room
+        if lw:
+            r["担当者ID"] = people.get(r["担当者名"], "") or r.get("LW担当者ID", "")
+            r["ルームID"] = r.get("LWチャンネルID") or room
+        else:
+            r["担当者ID"] = r.get("担当者ID") or people.get(r["担当者名"], "")
+            r["ルームID"] = r.get("ルームID") or room
     return rows
+
+
+def manager(cfg):
+    m = cfg["manager"]
+    if service(cfg) == "lineworks":
+        return {"name": m["name"], "account_id": m.get("lineworks_user_id", "")}
+    return m
 
 
 def find_deposit(item, deposits, used, rules):
@@ -188,25 +298,36 @@ def find_deposit(item, deposits, used, rules):
 
 
 
-def clean_text(body):
-    """返信の本文から [rp]・[To] の見出しを外して中身だけにする。"""
+def clean_text(body, item_id=None):
+    """返信の本文から [rp]・[To]・メンション・先頭の案件番号を外して中身だけにする。"""
     body = re.sub(r"\[(rp|To|To:)[^\]]*\][^\n]*\n?", "", body)
+    body = re.sub(r'<m userId="[^"]*">', "", body).strip()
+    if item_id:
+        body = re.sub(r"^\s*" + re.escape(item_id) + r"[\s:：、,.]*", "", body, flags=re.I)
     return body.strip()
 
 
-def find_reply(chat, item, ids, since, owner_only_one):
+def names_item(body, item_id, all_ids):
+    """LINE WORKS には返信ボタンがないので、本文の先頭に案件番号があればその案件への返事とみなす。"""
+    m = re.match(r"\s*([A-Za-z0-9][A-Za-z0-9-]*)", unicodedata.normalize("NFKC", clean_text(body)))
+    return bool(m) and m.group(1).upper() == item_id.upper() and item_id in all_ids
+
+
+def find_reply(chat, item, ids, since, owner_only_one, all_ids=()):
     """送ったメッセージ（ids）への返信を探す。
-    返信ボタンを使わない発言は、その担当者の確認待ちが1件だけのときに限り返信とみなす。"""
+    返信ボタン（Chatwork）か先頭の案件番号（LINE WORKS）でどの案件か分かる発言はそのまま拾う。
+    どちらもない発言は、その担当者の確認待ちが1件だけのときに限り返信とみなす。"""
     room = item["ルームID"]
     ids = set(ids)
     for m in chat.messages(room):
         if m["message_id"] in ids or m["account_id"] == chat.bot or m["send_time"] <= since:
             continue
         is_rp = any(f"to={room}-{mid}]" in m["body"] for mid in ids)
-        # 別のメッセージへの返信（[rp]）は、ほかの案件の返事なので拾わない
-        by_owner = (owner_only_one and m["account_id"] == str(item["担当者ID"])
-                    and "[rp " not in m["body"])
-        if is_rp or by_owner:
+        by_id = names_item(m["body"], item["id"], all_ids)
+        # 別のメッセージへの返信（[rp]）や、別の案件番号で始まる発言は、ほかの案件の返事なので拾わない
+        other = "[rp " in m["body"] or any(names_item(m["body"], x, all_ids) for x in all_ids if x != item["id"])
+        by_owner = owner_only_one and m["account_id"] == str(item["担当者ID"]) and not other
+        if is_rp or by_id or by_owner:
             return m
     return None
 
@@ -242,7 +363,12 @@ DEFAULT_TEMPLATES = {
 TEMPLATES = DEFAULT_TEMPLATES
 
 
+CHAT_KIND = "chatwork"
+
+
 def to_tag(aid, name):
+    if CHAT_KIND == "lineworks":
+        return f'<m userId="{aid}">さん' if aid else f"{name}さん"
     return f"[To:{aid}]{name}さん"
 
 
@@ -252,14 +378,19 @@ def fill(kind, v, to):
     for k, val in v.items():
         title = title.replace("{" + k + "}", str(val))
         body = body.replace("{" + k + "}", str(val))
-    return "\n".join(to_tag(a, n) for a, n in to) + f"\n[info][title]{title}[/title]{body}[/info]"
+    head = "\n".join(to_tag(a, n) for a, n in to)
+    if CHAT_KIND == "lineworks":
+        # LINE WORKS には枠や見出しの書式がないので【】で見出しにし、返信に使う案件番号を添える
+        foot = "" if kind == "paid" else f"\n\n案件番号：{v['案件番号']}（返信の先頭にこの番号を書いてください）"
+        return f"{head}\n【{title}】\n{body}{foot}"
+    return head + f"\n[info][title]{title}[/title]{body}[/info]"
 
 
 def base_vars(item, days_left=0):
     when = f"あと{days_left}日" if days_left > 0 else ("本日" if days_left == 0 else f"{-days_left}日経過")
     return {"お客様": item["お客様"], "物件": item["物件"], "区分": item["区分"],
             "取引先": item["お客様"], "金額": yen(item["金額"]), "予定日": item["入金予定日"],
-            "残り": when, "担当者": item["担当者名"]}
+            "残り": when, "担当者": item["担当者名"], "案件番号": item["id"]}
 
 
 def msg_ask(item, days_left, n=0, cc=None):
@@ -289,7 +420,8 @@ def in_send_hours(cfg, now):
 
 
 def apply_cfg(cfg):
-    global TEMPLATES, REASONS
+    global TEMPLATES, REASONS, CHAT_KIND
+    CHAT_KIND = service(cfg)
     TEMPLATES = {**DEFAULT_TEMPLATES, **cfg.get("templates", {})}
     REASONS = cfg.get("delay_reasons") or DEFAULT_REASONS
 
@@ -302,17 +434,19 @@ def new_state():
 
 def run(cfg, now, quiet=False):
     apply_cfg(cfg)
-    rules, mgr = cfg["rules"], cfg["manager"]
+    rules, mgr = cfg["rules"], manager(cfg)
     if not in_send_hours(cfg, now):
         if not quiet:
             print(f"[{now:%Y-%m-%d %H:%M}] 送信時間外のため何もしません")
         return []
     mt = (MockMoneytree if cfg["moneytree"]["mode"] == "mock" else CsvMoneytree)(cfg["moneytree"])
-    chat = (MockChatwork if cfg["chatwork"]["mode"] == "mock" else RealChatwork)(cfg["chatwork"])
+    chat = make_chat(cfg)
     state = load_json(STATE_FILE, {})
     deposits = mt.deposits(now)
     used = {s["deposit"]["id"] for s in state.values() if s.get("deposit")}
     items = load_expected(cfg)
+    all_ids = {it["id"] for it in items}
+    svc = SERVICES[service(cfg)]
     log = []
     waiting = {}
     for it in items:
@@ -322,7 +456,7 @@ def run(cfg, now, quiet=False):
 
     def send(item, body):
         mid = chat.post(item["ルームID"], body, now)
-        log.append(f"  → Chatwork送信 #{mid}  {item['id']} {item['お客様']} {item['区分']}")
+        log.append(f"  → {svc}送信 #{mid}  {item['id']} {item['お客様']} {item['区分']}")
         return mid
 
     for item in items:
@@ -353,17 +487,17 @@ def run(cfg, now, quiet=False):
 
         # 2) 確認への返信が来ていれば記録（以後の再送は止める）
         if st["first_sent_at"] and not st["reply"]:
-            r = find_reply(chat, item, st["sent_ids"], st["first_sent_at"] - 1, only_one)
+            r = find_reply(chat, item, st["sent_ids"], st["first_sent_at"] - 1, only_one, all_ids)
             if r:
-                st["reply"] = clean_text(r["body"])[:80]
+                st["reply"] = clean_text(r["body"], item["id"])[:80]
                 st["status"] = "replied" if st["status"] == "asked" else st["status"]
                 log.append(f"  ← 返信あり  {item['id']}：{st['reply']}")
 
         # 3) 未入金アラートへの返信から遅れの原因を読む
         if st["overdue_sent"] and st["reason"] is None:
-            r = find_reply(chat, item, [st["overdue_id"]], st["overdue_at"] - 1, only_one)
+            r = find_reply(chat, item, [st["overdue_id"]], st["overdue_at"] - 1, only_one, all_ids)
             if r:
-                txt = clean_text(r["body"])
+                txt = clean_text(r["body"], item["id"])
                 n = parse_reason(txt, REASONS)
                 if n is not None:
                     st["reason"], st["reason_text"] = n, txt[:80]
@@ -539,28 +673,32 @@ def cmd_status(cfg):
 
 
 def cmd_reply(cfg, item_id, text, now):
-    """モック用：担当者が直近のBotメッセージに返信した状態を作る。"""
-    chat = MockChatwork(cfg["chatwork"])
+    """モック用：担当者が直近のBotメッセージに返信した状態を作る。
+    Chatwork は返信ボタン、LINE WORKS は先頭に案件番号を書いた発言として作る。"""
+    chat = make_chat(cfg, mock=True)
     item = next(i for i in load_expected(cfg) if i["id"] == item_id)
     st = load_json(STATE_FILE, {}).get(item_id)
     if not st or not (st.get("sent_ids") or st.get("overdue_id")):
         sys.exit("まだ確認メッセージを送っていません")
     room = item["ルームID"]
     mid = st.get("overdue_id") or st["sent_ids"][-1]
-    body = f"[rp aid={chat.bot} to={room}-{mid}]確認Botさん\n{text}"
+    if service(cfg) == "lineworks":
+        body = f"{item_id} {text}"
+    else:
+        body = f"[rp aid={chat.bot} to={room}-{mid}]確認Botさん\n{text}"
     chat.post(room, body, now, account_id=item["担当者ID"])
     print(f"[{now:%Y-%m-%d %H:%M}] {item['担当者名']}さんが返信：{text}")
 
 
 def cmd_reset(cfg):
-    for p in (STATE_FILE, BASE / cfg["chatwork"]["mock_file"]):
+    for p in [STATE_FILE] + [BASE / cfg[k]["mock_file"] for k in SERVICES if k in cfg]:
         if Path(p).exists():
             Path(p).unlink()
-    print("状態とモックのChatwork履歴を消しました")
+    print("状態とモックのチャット履歴を消しました")
 
 
 def cmd_demo(cfg):
-    if cfg["chatwork"]["mode"] != "mock" or cfg["moneytree"]["mode"] != "mock":
+    if cfg[service(cfg)]["mode"] != "mock" or cfg["moneytree"]["mode"] != "mock":
         sys.exit("demo は mode=mock のときだけ実行できます")
     cmd_reset(cfg)
     steps = [
@@ -586,7 +724,7 @@ def cmd_demo(cfg):
     print()
     cmd_progress(cfg, parse_now("2026-10-22T11:00"), csv_out=True)
     print("\n================ 未入金アラートの文面（例） ================")
-    msgs = MockChatwork(cfg["chatwork"]).messages(cfg["chatwork"].get("room_id", "400000001"))
+    msgs = make_chat(cfg, mock=True).messages(default_room(cfg))
     m = [x for x in msgs if "未入金アラート" in x["body"]][-1]
     print(m["body"])
 
@@ -594,6 +732,7 @@ def cmd_demo(cfg):
 def main():
     cfg = load_json(BASE / "config.json", None)
     ap = argparse.ArgumentParser()
+    ap.add_argument("--service", choices=list(SERVICES), help="config の notify_service を一時的に切り替える")
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("run"); p.add_argument("--now")
     p = sub.add_parser("reply"); p.add_argument("id"); p.add_argument("text"); p.add_argument("--now")
@@ -601,6 +740,9 @@ def main():
     p = sub.add_parser("reason"); p.add_argument("id"); p.add_argument("number", type=int); p.add_argument("note", nargs="?")
     sub.add_parser("status"); sub.add_parser("reset"); sub.add_parser("demo")
     a = ap.parse_args()
+    if a.service:
+        cfg["notify_service"] = a.service
+    apply_cfg(cfg)
     if a.cmd == "run":
         run(cfg, parse_now(a.now))
     elif a.cmd == "reply":
